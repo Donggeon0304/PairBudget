@@ -38,7 +38,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useMonth } from '../../contexts/MonthContext';
 import { useFiscalCycle } from '../../contexts/FiscalCycleContext';
 import FiscalCycleSettingSheet from '../../components/FiscalCycleSettingSheet';
-import { checkForUpdate, CURRENT_VERSION_NAME } from '../../services/UpdateService';
+import { checkForUpdate, getDirectDownloadUrl, CURRENT_VERSION_NAME } from '../../services/UpdateService';
 
 const GROUP_ICONS: Record<string, string> = {
   '식비': 'restaurant-outline',
@@ -181,7 +181,7 @@ const DashboardScreen: React.FC = () => {
       if (!update) return;
 
       const handleUpdate = () => {
-        Linking.openURL(update.downloadUrl);
+        Linking.openURL(getDirectDownloadUrl(update.downloadUrl));
       };
 
       showAlert({

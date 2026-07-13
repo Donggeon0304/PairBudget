@@ -20,8 +20,8 @@ import firestore from '@react-native-firebase/firestore';
 import { Platform } from 'react-native';
 
 // ⚠️ 릴리즈 시 build.gradle의 versionCode/versionName과 반드시 함께 업데이트할 것
-export const CURRENT_VERSION_CODE = 22;
-export const CURRENT_VERSION_NAME = '1.21';
+export const CURRENT_VERSION_CODE = 23;
+export const CURRENT_VERSION_NAME = '1.22';
 
 export interface UpdateInfo {
   latestVersionCode: number;
@@ -57,7 +57,7 @@ export async function checkForUpdate(): Promise<UpdateInfo | null> {
 /**
  * Google Drive URL을 직접 다운로드 가능한 URL로 변환
  */
-function getDirectDownloadUrl(url: string): string {
+export function getDirectDownloadUrl(url: string): string {
   // Google Drive URL에서 file ID 추출
   let fileId: string | null = null;
 
@@ -72,7 +72,7 @@ function getDirectDownloadUrl(url: string): string {
   }
 
   if (fileId) {
-    return `https://drive.usercontent.google.com/download?id=${fileId}&export=download&confirm=t`;
+    return `https://drive.usercontent.google.com/download?id=${fileId}&export=download&confirm=t&t=${Date.now()}`;
   }
 
   return url;

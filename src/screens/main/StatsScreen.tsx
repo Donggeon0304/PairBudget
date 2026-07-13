@@ -171,6 +171,7 @@ const StatsScreen: React.FC = () => {
   const [trendMonths, setTrendMonths] = useState<Date[]>([]);
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
+  const pendingReopenGroup = useRef<string | null>(null);
 
   useEffect(() => {
     Animated.timing(fadeAnim, {
@@ -179,6 +180,17 @@ const StatsScreen: React.FC = () => {
       useNativeDriver: true,
     }).start();
   }, [fadeAnim]);
+
+  // 수정 화면에서 돌아올 때 세부 모달 복원
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', () => {
+      if (pendingReopenGroup.current) {
+        setSelectedGroupForDetail(pendingReopenGroup.current);
+        pendingReopenGroup.current = null;
+      }
+    });
+    return unsubscribe;
+  }, [navigation]);
 
   // ─── Listener for current month transactions ──────────────────────────────
 
@@ -1426,6 +1438,7 @@ const StatsScreen: React.FC = () => {
                           const m = String(tx.date.getMinutes()).padStart(2, '0');
                           return (
                             <TouchableOpacity key={tx.id} activeOpacity={0.6} onPress={() => {
+                              pendingReopenGroup.current = selectedGroupForDetail;
                               setSelectedGroupForDetail(null);
                               setTimeout(() => {
                                 navigation.getParent()?.navigate('AddTransaction', { editTransaction: tx });

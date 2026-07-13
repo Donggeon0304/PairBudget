@@ -26,7 +26,7 @@ import { useAlert } from '../../components/CustomAlert';
 import { useAuth } from '../../contexts/AuthContext';
 import { useHousehold } from '../../contexts/HouseholdContext';
 import { saveCoupleAccountBanks, checkNotificationPermission, requestNotificationPermission } from '../../services/NotificationService';
-import { checkForUpdate, CURRENT_VERSION_NAME } from '../../services/UpdateService';
+import { checkForUpdate, getDirectDownloadUrl, CURRENT_VERSION_NAME } from '../../services/UpdateService';
 import { DraggableList } from '../../components/DraggableList';
 import firestore from '@react-native-firebase/firestore';
 
@@ -1297,7 +1297,7 @@ const SettingsScreen: React.FC = () => {
               const update = await checkForUpdate();
               if (update) {
                 const handleUpdate = () => {
-                  Linking.openURL(update.downloadUrl);
+                  Linking.openURL(getDirectDownloadUrl(update.downloadUrl));
                 };
 
                 showAlert({
