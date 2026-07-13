@@ -20,8 +20,8 @@ import firestore from '@react-native-firebase/firestore';
 import { Platform } from 'react-native';
 
 // ⚠️ 릴리즈 시 build.gradle의 versionCode/versionName과 반드시 함께 업데이트할 것
-export const CURRENT_VERSION_CODE = 21;
-export const CURRENT_VERSION_NAME = '1.20';
+export const CURRENT_VERSION_CODE = 22;
+export const CURRENT_VERSION_NAME = '1.21';
 
 export interface UpdateInfo {
   latestVersionCode: number;

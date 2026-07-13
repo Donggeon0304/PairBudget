@@ -363,12 +363,12 @@ const StatsScreen: React.FC = () => {
     return currentMonthTx.filter(t => t.isCouple || t.createdBy === user?.uid);
   }, [currentMonthTx, coupleFilter, user?.uid]);
 
-  // Detail modal: further filter by detailFilter
+  // Detail modal: filter from full dataset by detailFilter (independent of main coupleFilter)
   const detailFilteredTx = useMemo(() => {
-    if (detailFilter === 'personal') return filteredTx.filter(t => !t.isCouple && t.createdBy === user?.uid);
-    if (detailFilter === 'couple') return filteredTx.filter(t => t.isCouple);
-    return filteredTx;
-  }, [filteredTx, detailFilter, user?.uid]);
+    if (detailFilter === 'personal') return currentMonthTx.filter(t => !t.isCouple && t.createdBy === user?.uid);
+    if (detailFilter === 'couple') return currentMonthTx.filter(t => t.isCouple);
+    return currentMonthTx.filter(t => t.isCouple || t.createdBy === user?.uid);
+  }, [currentMonthTx, detailFilter, user?.uid]);
 
   // Derive trend data from raw docs with detailFilter applied
   const groupMonthlyTrendFiltered = useMemo(() => {
