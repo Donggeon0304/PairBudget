@@ -26,6 +26,17 @@
 - 릴리즈(release)는 USB 설치 안 함. APK를 Google Drive 업로드.
 - APK를 바탕화면 등으로 임의 복사 금지. 사용자가 `D:\SideProjects\PairBudget\android\app\build\outputs\apk\release\`에서 직접 가져감.
 
+## 3-1. Git 관리 규칙
+- **원격 저장소:** `https://github.com/Donggeon0304/PairBudget.git` (Private)
+- **브랜치:** `main` 단일 브랜치. 브랜치 생성하지 말 것.
+- **이 프로젝트는 개인 계정으로 관리.** 회사 노트북이므로 글로벌 Git 설정과 완전히 분리되어 있음.
+  - 로컬 설정: `user.name=rodzl`, `user.email=rodzld18@naver.com`
+  - 글로벌 설정(회사 계정)은 **절대 수정하지 말 것.**
+  - `git config --global` 명령 사용 금지. 반드시 `--local`만 사용.
+- **커밋/푸시 규칙:**
+  - 릴리즈 빌드 후 커밋하고 push할 것.
+  - 커밋 메시지: `v{버전} - {변경 요약}` 형식 (예: `v1.20 - 브라우저 다운로드 전환`)
+
 ## 4. 개발 환경 경로
 - **프로젝트:** `D:\SideProjects\PairBudget`
 - **Android SDK:** `D:\Android\Sdk`
