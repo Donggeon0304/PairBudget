@@ -38,7 +38,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useMonth } from '../../contexts/MonthContext';
 import { useFiscalCycle } from '../../contexts/FiscalCycleContext';
 import FiscalCycleSettingSheet from '../../components/FiscalCycleSettingSheet';
-import { checkForUpdate, downloadApkViaManager, CURRENT_VERSION_NAME } from '../../services/UpdateService';
+import { checkForUpdate, CURRENT_VERSION_NAME } from '../../services/UpdateService';
 
 const GROUP_ICONS: Record<string, string> = {
   '식비': 'restaurant-outline',
@@ -180,25 +180,8 @@ const DashboardScreen: React.FC = () => {
       const update = await checkForUpdate();
       if (!update) return;
 
-      const handleUpdate = async () => {
-        showAlert({
-          title: '다운로드 시작 📥',
-          message: '알림바에서 다운로드 진행상황을 확인하세요.\n완료되면 알림을 탭하여 설치합니다.',
-          icon: 'info',
-          buttons: [{ text: '확인' }],
-        });
-        const result = await downloadApkViaManager(update.downloadUrl);
-        if (!result.success) {
-          showAlert({
-            title: '다운로드 실패',
-            message: '시스템 다운로드에 실패했습니다.\n브라우저에서 직접 다운로드합니다.',
-            icon: 'error',
-            buttons: [{
-              text: '브라우저로 다운로드',
-              onPress: () => Linking.openURL(update.downloadUrl),
-            }],
-          });
-        }
+      const handleUpdate = () => {
+        Linking.openURL(update.downloadUrl);
       };
 
       showAlert({
