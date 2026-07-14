@@ -79,26 +79,20 @@ export function getDirectDownloadUrl(url: string): string {
 }
 
 /**
- * APK를 앱 내에서 직접 다운로드하고 설치 인텐트를 실행
- * 브라우저 캐시를 완전히 우회합니다.
- * 
- * @param downloadUrl Google Drive 다운로드 URL
- * @param onProgress 다운로드 진행률 콜백 (0~100)
- * @returns 성공 시 true
+ * 시스템 DownloadManager로 APK 다운로드 (앱을 벗어나지 않음)
+ * GitHub Releases URL에 최적화
  */
-export async function downloadAndInstallApk(
+export async function downloadApkViaManager(
   downloadUrl: string,
-  onProgress?: (percent: number) => void,
 ): Promise<{ success: boolean; error?: string }> {
   if (Platform.OS !== 'android') return { success: false, error: 'Android 전용' };
 
-  const directUrl = getDirectDownloadUrl(downloadUrl);
-  const downloadDir = ReactNativeBlobUtil.fs.dirs.DownloadDir;
-  const fileName = `모두의가계부-v${CURRENT_VERSION_CODE + 1}.apk`;
-  const filePath = `${downloadDir}/${fileName}`;
-
   try {
-    // 이전 다운로드 파일 정리
+    const downloadDir = ReactNativeBlobUtil.fs.dirs.DownloadDir;
+    const fileName = `PairBudget-v${CURRENT_VERSION_CODE + 1}.apk`;
+    const filePath = `${downloadDir}/${fileName}`;
+
+    // 이전 APK 정리
     const files = await ReactNativeBlobUtil.fs.ls(downloadDir);
     for (const f of files) {
       if ((f.startsWith('PairBudget-') || f.startsWith('모두의가계부-')) && f.endsWith('.apk')) {
@@ -106,72 +100,27 @@ export async function downloadAndInstallApk(
       }
     }
 
-    console.log('[UpdateService] APK 다운로드 시작:', directUrl);
+    console.log('[UpdateService] DownloadManager 다운로드 시작:', downloadUrl);
 
-    const task = ReactNativeBlobUtil.config({
+    await ReactNativeBlobUtil.config({
       path: filePath,
       fileCache: false,
       followRedirect: true,
-      timeout: 90000, // 90초 타임아웃
-    }).fetch('GET', directUrl, {
-      'Cache-Control': 'no-cache, no-store, must-revalidate',
-      'Pragma': 'no-cache',
-      'User-Agent': 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36',
-    });
+      addAndroidDownloads: {
+        useDownloadManager: true,
+        title: '모두의 가계부 업데이트',
+        description: '다운로드 완료 후 탭하여 설치하세요',
+        mime: 'application/vnd.android.package-archive',
+        mediaScannable: false,
+        notification: true,
+        path: filePath,
+      },
+    }).fetch('GET', downloadUrl);
 
-    task.progress((received: string, total: string) => {
-      const r = Number(received);
-      const t = Number(total);
-      if (t > 0) {
-        onProgress?.(Math.round((r / t) * 100));
-      } else {
-        const receivedMB = r / (1024 * 1024);
-        onProgress?.(Math.min(Math.round((receivedMB / 55) * 100), 99));
-      }
-    });
-
-    // 타임아웃 래퍼 (90초)
-    const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error(`다운로드 타임아웃 (90초)\nURL: ${directUrl.substring(0, 80)}...`)), 90000)
-    );
-
-    const res = await Promise.race([task, timeoutPromise]);
-
-    const status = res.info().status;
-    console.log('[UpdateService] 다운로드 완료, 상태:', status);
-
-    if (status !== 200) {
-      await ReactNativeBlobUtil.fs.unlink(filePath).catch(() => {});
-      return { success: false, error: `HTTP ${status}` };
-    }
-
-    // 파일 크기 검증
-    const stat = await ReactNativeBlobUtil.fs.stat(filePath);
-    const fileSizeMB = Number(stat.size) / (1024 * 1024);
-    console.log('[UpdateService] 다운로드 파일 크기:', fileSizeMB.toFixed(1), 'MB');
-    if (fileSizeMB < 5) {
-      await ReactNativeBlobUtil.fs.unlink(filePath).catch(() => {});
-      return { success: false, error: `파일 크기 이상: ${fileSizeMB.toFixed(1)}MB (HTML 페이지일 수 있음)` };
-    }
-
-    onProgress?.(100);
-
-    // 시스템 DownloadManager에 등록 → 시스템 알림으로 설치 유도
-    console.log('[UpdateService] 시스템 알림으로 설치 유도:', filePath);
-    await ReactNativeBlobUtil.android.addCompleteDownload({
-      title: `모두의 가계부 업데이트`,
-      description: '탭하여 설치를 진행하세요',
-      mime: 'application/vnd.android.package-archive',
-      path: filePath,
-      showNotification: true,
-    });
-
+    console.log('[UpdateService] DownloadManager 요청 완료');
     return { success: true };
   } catch (error: any) {
-    console.error('[UpdateService] APK 다운로드/설치 실패:', error);
-    try {
-      await ReactNativeBlobUtil.fs.unlink(filePath);
-    } catch {}
+    console.error('[UpdateService] DownloadManager 실패:', error);
     return { success: false, error: error?.message || String(error) };
   }
 }
