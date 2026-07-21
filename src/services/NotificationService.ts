@@ -95,9 +95,19 @@ export async function getCoupleAccountBanks(): Promise<string[]> {
 // Headless task handler (runs even when app is in background)
 // ---------------------------------------------------------------------------
 
-/** 인메모리 중복 방지 (프로세스 내 경쟁 조건 해결) */
+/** AsyncStorage 읽기-수정-쓰기 경쟁 조건 방지 뮤텍스 */
+let pendingMutex: Promise<void> = Promise.resolve();
+function acquirePendingLock(): { promise: Promise<void>; release: () => void } {
+  let release: () => void = () => {};
+  const newLock = new Promise<void>(resolve => { release = resolve; });
+  const waitForPrev = pendingMutex;
+  pendingMutex = newLock;
+  return { promise: waitForPrev, release };
+}
+
+/** 인메모리 중복 방지 (Android가 같은 알림을 연속 발사하는 것 방지) */
 const recentNotificationHashes = new Set<string>();
-const HASH_EXPIRY_MS = 3 * 60 * 1000; // 3분
+const HASH_EXPIRY_MS = 5 * 1000; // 5초 (같은 알림 연속 발사만 방지, 정상 거래는 허용)
 
 function quickHash(str: string): string {
   let hash = 0;
@@ -222,6 +232,11 @@ async function headlessNotificationHandler(rawNotification: any): Promise<void> 
   const coupleBanks = await getCoupleAccountBanks();
   const isCouple = coupleBanks.includes(packageName);
 
+  // 🔒 뮤텍스: 동시 알림 처리 시 AsyncStorage 덮어쓰기 방지
+  const lock = acquirePendingLock();
+  await lock.promise;
+  try {
+
   // 🟢 알림 중복 방지 (Deduplication) 로직
   const existing = await readPending();
   let duplicateIndex = -1;
@@ -250,7 +265,16 @@ async function headlessNotificationHandler(rawNotification: any): Promise<void> 
       if (t1 && t2 && t1 !== t2) {
         continue; // 시간이 다르면 다른 거래
       }
-      // 시간이 같거나 파싱 못 했으면 → 중복으로 처리
+      // 시간이 같으면 중복
+      if (t1 && t2 && t1 === t2) {
+        duplicateIndex = i;
+        break;
+      }
+      // 시간 파싱 못 한 경우 → receivedAt 차이로 판별 (30초 이상이면 별도 거래)
+      const receivedDiffMs = Math.abs(new Date().getTime() - new Date(p.receivedAt).getTime());
+      if (receivedDiffMs > 30 * 1000) {
+        continue; // 30초 이상 차이나면 다른 거래
+      }
       duplicateIndex = i;
       break;
     }
@@ -380,6 +404,9 @@ async function headlessNotificationHandler(rawNotification: any): Promise<void> 
     });
   } catch (e) {
     console.log('[PairBudget] 로컬 알림 발송 실패:', e);
+  }
+  } finally {
+    lock.release(); // 뮤텍스 해제
   }
   } catch (fatalError) {
     // 재부팅 직후 등 초기화 미완료 상태에서 크래시 방지
