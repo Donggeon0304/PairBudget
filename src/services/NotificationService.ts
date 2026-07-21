@@ -235,11 +235,13 @@ async function headlessNotificationHandler(rawNotification: any): Promise<void> 
     if (p.parsed.incomeOrExpense !== parsed.incomeOrExpense) continue;
 
     // 1. [피드백 반영] 같은 은행(카드사) + 같은 금액 + 같은 시간(15분 내)이면 가맹점이 다르게 파싱돼도 무조건 중복 1건으로!
-    const issuer1 = (parsed.cardIssuer || 'unknown').toLowerCase().replace(/\s+/g, '');
-    const issuer2 = (p.parsed.cardIssuer || 'unknown').toLowerCase().replace(/\s+/g, '');
+    const issuer1 = (parsed.cardIssuer || '').toLowerCase().replace(/\s+/g, '');
+    const issuer2 = (p.parsed.cardIssuer || '').toLowerCase().replace(/\s+/g, '');
     
-    const isSameIssuer = issuer1 === 'unknown' || issuer2 === 'unknown' || 
-                         issuer1.includes(issuer2) || issuer2.includes(issuer1);
+    // 둘 다 issuer를 특정한 경우에만 비교 (하나라도 빈값이면 issuer 비교 불가 → 다른 조건으로 판별)
+    const bothHaveIssuer = issuer1 !== '' && issuer2 !== '';
+    const isSameIssuer = bothHaveIssuer && 
+                         (issuer1.includes(issuer2) || issuer2.includes(issuer1));
                          
     if (isSameIssuer) {
       // 거래 시간(알림 원문에서 파싱된 시간)이 둘 다 있고 서로 다르면 → 별개 거래
@@ -253,8 +255,12 @@ async function headlessNotificationHandler(rawNotification: any): Promise<void> 
       break;
     }
 
-    // 2. 은행을 특정하지 못했을 때 (양쪽 다 확실히 다른 은행이면 위에서 isSameIssuer=false가 됨)
-    // 이 경우 가맹점명이 서로 일치/포함 관계이면 중복으로 판별
+    // issuer가 다르거나 특정 못한 경우, 다른 앱에서 온 알림이면 별개 거래
+    if (parsed.packageName && p.parsed.packageName && parsed.packageName !== p.parsed.packageName) {
+      continue; // 다른 앱에서 온 알림은 별개 거래
+    }
+
+    // 2. 같은 앱에서 온 알림이고, 가맹점명이 양쪽 다 있고 서로 포함 관계이면 중복
     const m1 = (parsed.merchant || '').replace(/\s+/g, '');
     const m2 = (p.parsed.merchant || '').replace(/\s+/g, '');
     
@@ -263,12 +269,12 @@ async function headlessNotificationHandler(rawNotification: any): Promise<void> 
       continue;
     }
 
-    // 가맹점명이 포함 관계이거나, 둘 중 하나가 누락되었는데 같은 앱에서 발생한 알림이면 중복
-    if ((m1 && m2 && (m1.includes(m2) || m2.includes(m1))) || 
-        (!m1 || !m2)) {
+    // 가맹점명이 포함 관계이면 중복
+    if (m1 && m2 && (m1.includes(m2) || m2.includes(m1))) {
       duplicateIndex = i;
       break;
     }
+    // 가맹점명이 한쪽만 없으면 → 중복 판정하지 않음 (별개 거래로 취급)
   }
 
   if (duplicateIndex >= 0) {
