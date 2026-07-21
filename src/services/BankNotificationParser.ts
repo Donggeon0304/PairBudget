@@ -474,7 +474,8 @@ export function generateTransactionHash(
   dateTime: string | null,
   cardIssuer: string | null,
 ): string {
-  const timeKey = dateTime || 'notime';
+  // dateTime이 null이면 현재 날짜+시간을 사용 (최소한 시간대 수준에서 구분)
+  const timeKey = dateTime || new Date().toISOString().slice(0, 16); // 'YYYY-MM-DDTHH:MM'
   const merchantKey = (merchant || '').replace(/\s+/g, '').toLowerCase();
   const issuerKey = (cardIssuer || '').replace(/\s+/g, '').toLowerCase();
   const raw = `${amount}_${merchantKey}_${timeKey}_${issuerKey}`;
