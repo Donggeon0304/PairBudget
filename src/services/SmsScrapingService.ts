@@ -190,6 +190,7 @@ export async function scrapeSmsTransactions(
           p.parsed.merchant,
           p.parsed.dateTime,
           p.parsed.cardIssuer,
+          p.receivedAt,
         );
         existingHashes.add(hash);
       }
@@ -217,6 +218,7 @@ export async function scrapeSmsTransactions(
       item.parsed.merchant,
       item.parsed.dateTime,
       item.parsed.cardIssuer,
+      item.smsDate,
     );
 
     // 이미 등록됨 or 대기 중 or 제외됨 → 스킵 (해시 매칭)

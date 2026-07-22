@@ -88,6 +88,7 @@ const PendingTransactionsScreen: React.FC<{ navigation: any }> = ({ navigation }
             item.parsed.merchant,
             item.parsed.dateTime,
             item.parsed.cardIssuer,
+            item.receivedAt,
           );
           try {
             const snap = await firestore()
@@ -354,6 +355,7 @@ const PendingTransactionsScreen: React.FC<{ navigation: any }> = ({ navigation }
         item.parsed.merchant,
         item.parsed.dateTime,
         item.parsed.cardIssuer,
+        item.receivedAt,
       );
 
 
@@ -455,6 +457,7 @@ const PendingTransactionsScreen: React.FC<{ navigation: any }> = ({ navigation }
                   item.parsed.merchant,
                   item.parsed.dateTime,
                   item.parsed.cardIssuer,
+                  item.receivedAt,
                 );
                 await addRejectedHash(hash);
               }
@@ -512,6 +515,7 @@ const PendingTransactionsScreen: React.FC<{ navigation: any }> = ({ navigation }
                   item.parsed.merchant,
                   item.parsed.dateTime,
                   item.parsed.cardIssuer,
+                  item.receivedAt,
                 );
 
                 const dupSnap = await firestore()

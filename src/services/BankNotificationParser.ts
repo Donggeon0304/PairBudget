@@ -467,15 +467,27 @@ function cleanTelecomMerchant(name: string): string {
  * 거래의 고유 지문을 생성합니다.
  * 같은 거래(같은 은행, 같은 금액, 같은 시간대)는 동일한 해시를 갖습니다.
  * A와 B 모두 같은 공동통장 알림을 받아도 해시가 같으므로 중복 방지 가능.
+ *
+ * @param fallbackTime dateTime이 null일 때 대신 사용할 시간 (receivedAt 또는 smsDate).
+ *                     분 단위로 잘라서 사용하므로 수 초 차이는 무시됩니다.
  */
 export function generateTransactionHash(
   amount: number,
   merchant: string | null,
   dateTime: string | null,
   cardIssuer: string | null,
+  fallbackTime?: Date | string,
 ): string {
-  // dateTime이 null이면 현재 날짜+시간을 사용 (최소한 시간대 수준에서 구분)
-  const timeKey = dateTime || new Date().toISOString().slice(0, 16); // 'YYYY-MM-DDTHH:MM'
+  let timeKey: string;
+  if (dateTime) {
+    timeKey = dateTime;
+  } else if (fallbackTime) {
+    // receivedAt/smsDate → 분 단위로 잘라서 안정적인 해시 생성
+    const d = new Date(fallbackTime);
+    timeKey = isNaN(d.getTime()) ? 'notime' : d.toISOString().slice(0, 16);
+  } else {
+    timeKey = 'notime';
+  }
   const merchantKey = (merchant || '').replace(/\s+/g, '').toLowerCase();
   const issuerKey = (cardIssuer || '').replace(/\s+/g, '').toLowerCase();
   const raw = `${amount}_${merchantKey}_${timeKey}_${issuerKey}`;
