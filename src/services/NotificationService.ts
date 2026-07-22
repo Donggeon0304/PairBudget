@@ -279,9 +279,17 @@ async function headlessNotificationHandler(rawNotification: any): Promise<void> 
       break;
     }
 
-    // issuer가 다르거나 특정 못한 경우, 다른 앱에서 온 알림이면 별개 거래
+    // issuer가 다르고 다른 앱에서 온 경우 → dateTime이 동일하면 같은 거래 (다른 앱이 같은 결제를 보고)
     if (parsed.packageName && p.parsed.packageName && parsed.packageName !== p.parsed.packageName) {
-      continue; // 다른 앱에서 온 알림은 별개 거래
+      const t1 = (parsed.dateTime || '').trim();
+      const t2 = (p.parsed.dateTime || '').trim();
+      if (t1 && t2 && t1 === t2) {
+        // 다른 앱이지만 같은 시간+금액+타입 → 같은 거래 (예: 농협 앱 + 카카오페이 앱)
+        duplicateIndex = i;
+        break;
+      }
+      // dateTime이 다르거나 파싱 못 했으면 별개 거래
+      continue;
     }
 
     // 2. 같은 앱에서 온 알림이고, 가맹점명이 양쪽 다 있고 서로 포함 관계이면 중복
