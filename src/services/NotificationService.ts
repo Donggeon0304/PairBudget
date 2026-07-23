@@ -259,36 +259,88 @@ async function headlessNotificationHandler(rawNotification: any): Promise<void> 
                          (issuer1.includes(issuer2) || issuer2.includes(issuer1));
                          
     if (isSameIssuer) {
-      // 거래 시간(알림 원문에서 파싱된 시간)이 둘 다 있고 서로 다르면 → 별개 거래
+      // 거래 시간(알림 원문에서 파싱된 시간) 비교
       const t1 = (parsed.dateTime || '').trim();
       const t2 = (p.parsed.dateTime || '').trim();
-      if (t1 && t2 && t1 !== t2) {
+      
+      // 둘 다 dateTime이 있는 경우 → 직접 비교
+      if (t1 && t2) {
+        if (t1 === t2) {
+          duplicateIndex = i;
+          break;
+        }
         continue; // 시간이 다르면 다른 거래
       }
-      // 시간이 같으면 중복
-      if (t1 && t2 && t1 === t2) {
-        duplicateIndex = i;
-        break;
+      
+      // 한쪽만 dateTime이 있는 경우 → receivedAt을 MM/DD HH:MM 형식으로 변환해서 비교
+      if (t1 || t2) {
+        const knownTime = t1 || t2;
+        // dateTime이 없는 쪽의 receivedAt을 같은 형식으로 변환
+        const fallbackDate = t1 ? new Date(p.receivedAt) : new Date();
+        const mm = String(fallbackDate.getMonth() + 1).padStart(2, '0');
+        const dd = String(fallbackDate.getDate()).padStart(2, '0');
+        const hh = String(fallbackDate.getHours()).padStart(2, '0');
+        const min = String(fallbackDate.getMinutes()).padStart(2, '0');
+        const receivedTimeStr = `${mm}/${dd} ${hh}:${min}`;
+        
+        if (knownTime === receivedTimeStr) {
+          duplicateIndex = i;
+          break;
+        }
+        // 1분 차이도 허용 (알림 지연 감안)
+        const fallbackDate2 = new Date(fallbackDate.getTime() - 60000);
+        const mm2 = String(fallbackDate2.getMonth() + 1).padStart(2, '0');
+        const dd2 = String(fallbackDate2.getDate()).padStart(2, '0');
+        const hh2 = String(fallbackDate2.getHours()).padStart(2, '0');
+        const min2 = String(fallbackDate2.getMinutes()).padStart(2, '0');
+        const receivedTimeStr2 = `${mm2}/${dd2} ${hh2}:${min2}`;
+        if (knownTime === receivedTimeStr2) {
+          duplicateIndex = i;
+          break;
+        }
+        continue;
       }
-      // 시간 파싱 못 한 경우 → receivedAt 차이로 판별 (30초 이상이면 별도 거래)
+      
+      // 둘 다 dateTime 파싱 못 한 경우 → receivedAt 차이로 판별 (2분 이상이면 별도 거래)
       const receivedDiffMs = Math.abs(new Date().getTime() - new Date(p.receivedAt).getTime());
-      if (receivedDiffMs > 30 * 1000) {
-        continue; // 30초 이상 차이나면 다른 거래
+      if (receivedDiffMs > 120 * 1000) {
+        continue;
       }
       duplicateIndex = i;
       break;
     }
 
-    // issuer가 다르고 다른 앱에서 온 경우 → dateTime이 동일하면 같은 거래 (다른 앱이 같은 결제를 보고)
+    // issuer가 다르고 다른 앱에서 온 경우 → 시간 비교로 같은 거래인지 판단
     if (parsed.packageName && p.parsed.packageName && parsed.packageName !== p.parsed.packageName) {
       const t1 = (parsed.dateTime || '').trim();
       const t2 = (p.parsed.dateTime || '').trim();
+      // 둘 다 dateTime이 있고 같으면 → 중복
       if (t1 && t2 && t1 === t2) {
-        // 다른 앱이지만 같은 시간+금액+타입 → 같은 거래 (예: 농협 앱 + 카카오페이 앱)
         duplicateIndex = i;
         break;
       }
-      // dateTime이 다르거나 파싱 못 했으면 별개 거래
+      // 한쪽만 dateTime이 있는 경우 → receivedAt으로 비교
+      if ((t1 || t2) && !(t1 && t2)) {
+        const knownTime = t1 || t2;
+        const fallbackDate = t1 ? new Date(p.receivedAt) : new Date();
+        const mm = String(fallbackDate.getMonth() + 1).padStart(2, '0');
+        const dd = String(fallbackDate.getDate()).padStart(2, '0');
+        const hh = String(fallbackDate.getHours()).padStart(2, '0');
+        const min = String(fallbackDate.getMinutes()).padStart(2, '0');
+        const receivedTimeStr = `${mm}/${dd} ${hh}:${min}`;
+        if (knownTime === receivedTimeStr) {
+          duplicateIndex = i;
+          break;
+        }
+        // 1분 차이 허용
+        const fb2 = new Date(fallbackDate.getTime() - 60000);
+        const rts2 = `${String(fb2.getMonth()+1).padStart(2,'0')}/${String(fb2.getDate()).padStart(2,'0')} ${String(fb2.getHours()).padStart(2,'0')}:${String(fb2.getMinutes()).padStart(2,'0')}`;
+        if (knownTime === rts2) {
+          duplicateIndex = i;
+          break;
+        }
+      }
+      // dateTime이 다르거나 매칭 안 되면 별개 거래
       continue;
     }
 
