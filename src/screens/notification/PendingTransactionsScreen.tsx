@@ -392,11 +392,16 @@ const PendingTransactionsScreen: React.FC<{ navigation: any }> = ({ navigation }
           date: (() => {
             if (!item.parsed.dateTime) return new Date(item.receivedAt);
             const dt = item.parsed.dateTime;
-            const withYear = dt.match(/^\d{2}\/\d{2}/) && !dt.match(/\d{4}/)
-              ? `${new Date().getFullYear()}/${dt}`
-              : dt;
-            const parsed = new Date(withYear);
-            return isNaN(parsed.getTime()) ? new Date() : parsed;
+            // MM/DD HH:MM → YYYY-MM-DDTHH:MM (Hermes 호환 ISO 형식)
+            const m = dt.match(/(\d{1,2})\/(\d{1,2})\s+(\d{2}):(\d{2})/);
+            if (m) {
+              const year = new Date().getFullYear();
+              const month = m[1].padStart(2, '0');
+              const day = m[2].padStart(2, '0');
+              return new Date(`${year}-${month}-${day}T${m[3]}:${m[4]}:00`);
+            }
+            const parsed = new Date(dt);
+            return isNaN(parsed.getTime()) ? new Date(item.receivedAt) : parsed;
           })(),
           createdBy: user.uid,
           createdByName: user.displayName || '',
@@ -547,11 +552,16 @@ const PendingTransactionsScreen: React.FC<{ navigation: any }> = ({ navigation }
                     date: (() => {
                       if (!item.parsed.dateTime) return new Date(item.receivedAt);
                       const dt = item.parsed.dateTime;
-                      const withYear = dt.match(/^\d{2}\/\d{2}/) && !dt.match(/\d{4}/)
-                        ? `${new Date().getFullYear()}/${dt}`
-                        : dt;
-                      const parsed = new Date(withYear);
-                      return isNaN(parsed.getTime()) ? new Date() : parsed;
+                      // MM/DD HH:MM → YYYY-MM-DDTHH:MM (Hermes 호환 ISO 형식)
+                      const m = dt.match(/(\d{1,2})\/(\d{1,2})\s+(\d{2}):(\d{2})/);
+                      if (m) {
+                        const year = new Date().getFullYear();
+                        const month = m[1].padStart(2, '0');
+                        const day = m[2].padStart(2, '0');
+                        return new Date(`${year}-${month}-${day}T${m[3]}:${m[4]}:00`);
+                      }
+                      const parsed = new Date(dt);
+                      return isNaN(parsed.getTime()) ? new Date(item.receivedAt) : parsed;
                     })(),
                     createdBy: user.uid,
                     createdByName: user.displayName || '',
