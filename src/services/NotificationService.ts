@@ -48,22 +48,43 @@ function generateId(): string {
 }
 
 /**
- * Read the pending transactions array from AsyncStorage.
+ * 인메모리 캐시: 동시 알림 처리 시 AsyncStorage I/O 경쟁 상태 방지
+ * 뮤텍스와 결합하여 readPending → dedup → writePending 사이클의 일관성 보장
+ */
+let pendingCache: PendingTransaction[] | null = null;
+
+/**
+ * Read the pending transactions array.
+ * 인메모리 캐시가 있으면 즉시 반환 (AsyncStorage I/O 없음),
+ * 없으면 AsyncStorage에서 로드 후 캐시.
  */
 async function readPending(): Promise<PendingTransaction[]> {
+  if (pendingCache !== null) {
+    return [...pendingCache]; // 얕은 복사: 원본 캐시 보호
+  }
   try {
     const json = await AsyncStorage.getItem(STORAGE_KEY);
-    return json ? (JSON.parse(json) as PendingTransaction[]) : [];
-  } catch {
-    return [];
+    pendingCache = json ? (JSON.parse(json) as PendingTransaction[]) : [];
+    return [...pendingCache];
+  } catch (e) {
+    console.error('[PairBudget] readPending AsyncStorage 실패:', e);
+    return pendingCache ? [...pendingCache] : [];
   }
 }
 
 /**
  * Write the pending transactions array to AsyncStorage.
+ * 인메모리 캐시도 동시에 갱신.
  */
 async function writePending(items: PendingTransaction[]): Promise<void> {
-  await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+  pendingCache = items; // 캐시 즉시 갱신 (다음 readPending에서 사용)
+  try {
+    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+  } catch (e) {
+    console.error('[PairBudget] writePending AsyncStorage 실패:', e);
+    // 캐시는 이미 갱신됨 → 다음 dedup에서는 정상 동작
+    // AsyncStorage 저장은 실패했지만 앱 재시작 전까지는 캐시로 동작
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -239,6 +260,7 @@ async function headlessNotificationHandler(rawNotification: any): Promise<void> 
 
   // 🟢 알림 중복 방지 (Deduplication) 로직
   const existing = await readPending();
+  console.log(`[PairBudget] 🔍 dedup 시작: pending=${existing.length}건, 새알림=${parsed.amount}원 ${parsed.incomeOrExpense} issuer=${parsed.cardIssuer} dt=${parsed.dateTime} pkg=${packageName}`);
   let duplicateIndex = -1;
   for (let i = 0; i < existing.length; i++) {
     const p = existing[i];
@@ -253,12 +275,14 @@ async function headlessNotificationHandler(rawNotification: any): Promise<void> 
     const issuer1 = (parsed.cardIssuer || '').toLowerCase().replace(/\s+/g, '');
     const issuer2 = (p.parsed.cardIssuer || '').toLowerCase().replace(/\s+/g, '');
     
-    // 둘 다 issuer를 특정한 경우에만 비교 (하나라도 빈값이면 issuer 비교 불가 → 다른 조건으로 판별)
+    // 둘 다 issuer가 있고 서로 다르면 → 확실히 다른 은행
     const bothHaveIssuer = issuer1 !== '' && issuer2 !== '';
-    const isSameIssuer = bothHaveIssuer && 
-                         (issuer1.includes(issuer2) || issuer2.includes(issuer1));
+    const isDefinitelyDifferentIssuer = bothHaveIssuer && 
+                         !issuer1.includes(issuer2) && !issuer2.includes(issuer1);
+    // 같은 은행이거나, 한쪽이 unknown이면 → 시간 기반 중복 체크 진행
+    const isSameOrUnknownIssuer = !isDefinitelyDifferentIssuer;
                          
-    if (isSameIssuer) {
+    if (isSameOrUnknownIssuer) {
       // 거래 시간(알림 원문에서 파싱된 시간) 비교
       const t1 = (parsed.dateTime || '').trim();
       const t2 = (p.parsed.dateTime || '').trim();
@@ -528,6 +552,7 @@ export async function removePendingTransaction(id: string): Promise<void> {
  * Clear the entire pending transaction queue.
  */
 export async function clearPendingTransactions(): Promise<void> {
+  pendingCache = null; // 캐시 무효화
   await AsyncStorage.removeItem(STORAGE_KEY);
 }
 
