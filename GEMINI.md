@@ -23,8 +23,14 @@
 
 ## 3. 릴리즈 배포 (release) 규칙
 - 개발 모드(dev)는 USB 케이블로 설치.
-- 릴리즈(release)는 USB 설치 안 함. APK를 Google Drive 업로드.
+- 릴리즈(release)는 USB 설치 안 함.
 - APK를 바탕화면 등으로 임의 복사 금지. 사용자가 `D:\SideProjects\PairBudget\android\app\build\outputs\apk\release\`에서 직접 가져감.
+- **GitHub Release 배포 절차:**
+  1. 빌드 완료 후 `git add -A && git commit && git push`
+  2. GitHub Release 생성 (태그: `v{버전}`)
+  3. APK 파일명은 반드시 **`PairBudget.apk`** (고정, 버전 번호 붙이지 말 것)
+  4. 다운로드 URL은 항상 고정: `https://github.com/Donggeon0304/PairBudget/releases/latest/download/PairBudget.apk`
+  5. Firestore `app_config/version` 문서 업데이트는 **사용자가 직접 수행** (에이전트가 하지 않음)
 
 ## 3-1. Git 관리 규칙
 - **원격 저장소:** `https://github.com/Donggeon0304/PairBudget.git` (Private)
