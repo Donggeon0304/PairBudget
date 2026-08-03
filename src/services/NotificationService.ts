@@ -17,7 +17,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AppRegistry } from 'react-native';
 import notifee, { AndroidImportance } from '@notifee/react-native';
 
-import { PendingTransaction, Category, DEFAULT_CATEGORIES } from '../types';
+import { PendingTransaction, Category, DEFAULT_CATEGORIES, ParsedNotification } from '../types';
 import {
   parseNotification,
   isBankNotification,
@@ -25,6 +25,7 @@ import {
   isBankSms,
   BANK_PACKAGES,
   KAKAO_FINANCE_CHANNELS,
+  generateTransactionHash,
 } from './BankNotificationParser';
 import { autoMapCategory, initCategoryMapper, learnCategoryMapping, getLearnedMapping } from './CategoryAutoMapper';
 
@@ -35,6 +36,16 @@ import { autoMapCategory, initCategoryMapper, learnCategoryMapping, getLearnedMa
 const STORAGE_KEY = '@PairBudget:pendingTransactions';
 const COUPLE_BANKS_KEY = '@PairBudget:coupleBanks';
 const REJECTED_HASHES_KEY = '@PairBudget:rejectedTxHashes';
+const ARCHIVE_KEY = '@PairBudget:notificationArchive';
+
+export interface ArchivedNotification {
+  id: string;
+  parsed: ParsedNotification;  // 파싱된 거래 정보
+  receivedAt: string;         // ISO string
+  packageName: string;        // 원본 앱 패키지명
+  rawText: string;            // 원문 텍스트
+  txHash: string;             // 거래 해시 (dedup용)
+}
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -84,6 +95,60 @@ async function writePending(items: PendingTransaction[]): Promise<void> {
     console.error('[PairBudget] writePending AsyncStorage 실패:', e);
     // 캐시는 이미 갱신됨 → 다음 dedup에서는 정상 동작
     // AsyncStorage 저장은 실패했지만 앱 재시작 전까지는 캐시로 동작
+  }
+}
+
+/**
+ * 파싱된 알림을 아카이브에 저장합니다.
+ * 동일한 txHash가 있으면 중복으로 간주하고 무시합니다.
+ * 오래된 항목(30일 이상)은 정리하고, 최대 1000개만 유지합니다.
+ */
+async function saveToArchive(
+  parsed: ParsedNotification,
+  rawText: string,
+  packageName: string
+): Promise<void> {
+  try {
+    const txHash = generateTransactionHash(
+      parsed.amount || 0,
+      parsed.merchant,
+      parsed.dateTime,
+      parsed.cardIssuer,
+      new Date(),
+    );
+    const archiveJson = await AsyncStorage.getItem(ARCHIVE_KEY);
+    let archive: ArchivedNotification[] = archiveJson ? JSON.parse(archiveJson) : [];
+
+    // 중복 체크
+    if (archive.some(item => item.txHash === txHash)) {
+      return;
+    }
+
+    const now = new Date();
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+    // 오래된 항목 제거
+    archive = archive.filter(item => new Date(item.receivedAt) >= thirtyDaysAgo);
+
+    const newArchiveItem: ArchivedNotification = {
+      id: generateId(),
+      parsed,
+      receivedAt: now.toISOString(),
+      packageName,
+      rawText,
+      txHash,
+    };
+
+    archive.push(newArchiveItem);
+
+    // 최대 1000개 유지
+    if (archive.length > 1000) {
+      archive = archive.slice(archive.length - 1000);
+    }
+
+    await AsyncStorage.setItem(ARCHIVE_KEY, JSON.stringify(archive));
+  } catch (e) {
+    console.error('[PairBudget] 아카이브 저장 실패:', e);
   }
 }
 
@@ -252,6 +317,9 @@ async function headlessNotificationHandler(rawNotification: any): Promise<void> 
   // 공동 통장 여부 자동 판별
   const coupleBanks = await getCoupleAccountBanks();
   const isCouple = coupleBanks.includes(packageName);
+
+  // 아카이브에 원본 알림 저장 (뮤텍스 획득 전 독립적으로 수행)
+  await saveToArchive(parsed, rawText, packageName);
 
   // 🔒 뮤텍스: 동시 알림 처리 시 AsyncStorage 덮어쓰기 방지
   const lock = acquirePendingLock();
@@ -561,6 +629,26 @@ export { BANK_PACKAGES };
 
 // Re-export category learning functions
 export { learnCategoryMapping, getLearnedMapping, initCategoryMapper };
+
+/**
+ * 아카이브에서 지정 기간 내 알림 조회
+ * @param daysBack 며칠 전까지 조회
+ */
+export async function getArchivedNotifications(daysBack: number): Promise<ArchivedNotification[]> {
+  try {
+    const json = await AsyncStorage.getItem(ARCHIVE_KEY);
+    if (!json) return [];
+    
+    const all: ArchivedNotification[] = JSON.parse(json);
+    const limitDate = new Date();
+    limitDate.setDate(limitDate.getDate() - daysBack);
+    
+    return all.filter(item => new Date(item.receivedAt) >= limitDate);
+  } catch (e) {
+    console.error('[PairBudget] 아카이브 로드 실패:', e);
+    return [];
+  }
+}
 
 // saveCoupleAccountBanks, getCoupleAccountBanks는 위에서 이미 export됨
 

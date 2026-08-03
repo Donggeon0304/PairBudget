@@ -13,7 +13,7 @@ import {
   isBankSms,
   generateTransactionHash,
 } from './BankNotificationParser';
-import { getPendingTransactions, getRejectedHashes } from './NotificationService';
+import { getPendingTransactions, getRejectedHashes, getArchivedNotifications } from './NotificationService';
 import type { ParsedNotification } from '../types';
 
 const { SmsReader } = NativeModules;
@@ -23,6 +23,7 @@ export interface ScrapedSms {
   parsed: ParsedNotification;
   smsDate: Date;
   rawBody: string;
+  source: 'sms' | 'push';
 }
 
 export interface ScrapeResult {
@@ -32,6 +33,7 @@ export interface ScrapeResult {
     bankSmsCount: number;
     parsedCount: number;
     dedupedCount: number;
+    pushCount: number;
   };
 }
 
@@ -80,20 +82,22 @@ export async function scrapeSmsTransactions(
 ): Promise<ScrapeResult> {
   // 1. 권한 체크
   const hasPermission = await checkSmsPermission();
+  let smsPermissionGranted = hasPermission;
   if (!hasPermission) {
-    const granted = await requestSmsPermission();
-    if (!granted) {
-      throw new Error('SMS_PERMISSION_DENIED');
-    }
+    smsPermissionGranted = await requestSmsPermission();
   }
 
-  // 2. SMS 읽기 (네이티브 모듈)
-  const rawSmsList: Array<{
+  // 2. SMS 읽기 (권한 있을 때만)
+  let rawSmsList: Array<{
     id: string;
     address: string;
     body: string;
     date: number;
-  }> = await SmsReader.readSms(daysBack);
+  }> = [];
+
+  if (smsPermissionGranted) {
+    rawSmsList = await SmsReader.readSms(daysBack);
+  }
 
   console.log(`[SmsScrapingService] 총 SMS: ${rawSmsList.length}건`);
 
@@ -135,7 +139,28 @@ export async function scrapeSmsTransactions(
       parsed,
       smsDate: new Date(sms.date),
       rawBody: sms.body,
+      source: 'sms',
     });
+  }
+
+  // ─── 금융앱 푸시 알림 아카이브에서 가져오기 ───
+  let pushCount = 0;
+  try {
+    const archived = await getArchivedNotifications(daysBack);
+    for (const item of archived) {
+      // SMS와 동일한 형식으로 변환
+      parsedList.push({
+        id: `push_${item.id}`,
+        parsed: item.parsed,
+        smsDate: new Date(item.receivedAt),
+        rawBody: item.rawText,
+        source: 'push',
+      });
+      pushCount++;
+    }
+    console.log(`[SmsScrapingService] 아카이브 알림: ${pushCount}건 추가`);
+  } catch (e) {
+    console.warn('[SmsScrapingService] 아카이브 조회 실패:', e);
   }
 
   console.log(`[SmsScrapingService] 금융 문자: ${bankSmsCount}건, 파싱 성공: ${parsedList.length}건`);
@@ -269,6 +294,7 @@ export async function scrapeSmsTransactions(
       bankSmsCount,
       parsedCount: parsedList.length,
       dedupedCount: result.length,
+      pushCount,
     },
   };
 }

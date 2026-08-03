@@ -66,8 +66,9 @@ const PendingTransactionsScreen: React.FC<{ navigation: any }> = ({ navigation }
   // 메모(원문) 펼치기/접기
   const [expandedMemo, setExpandedMemo] = useState<Record<string, boolean>>({});
 
-  // SMS 스크래핑 상태
+  // 알림 가져오기 상태
   const [isScraping, setIsScraping] = useState(false);
+  const [showScrapeModal, setShowScrapeModal] = useState(false);
 
   // Firestore 거래 내역 기반 카테고리 매핑 (description → category)
   const [merchantCategoryMap, setMerchantCategoryMap] = useState<Record<string, { categoryId: string; categoryName: string; categoryGroup: string; categoryIcon: string }>>({});
@@ -646,26 +647,29 @@ const PendingTransactionsScreen: React.FC<{ navigation: any }> = ({ navigation }
     }
   };
 
-  // ─── SMS 스크래핑 ──────────────────────────────────────────────────────────────
+  // ─── 알림 가져오기 (SMS + 푸시 알림 통합) ──────────────────────────────────────
 
-  const handleSmsScrape = async () => {
+  const handleSmsScrape = async (daysBack: number = 7) => {
     if (!user?.householdId) return;
+    setShowScrapeModal(false);
     setIsScraping(true);
     try {
-      const result = await scrapeSmsTransactions(7, user.householdId);
+      const result = await scrapeSmsTransactions(daysBack, user.householdId);
       const { items: scraped, debug } = result;
 
       if (scraped.length === 0) {
+        const smsInfo = debug.totalSms > 0 ? `문자 ${debug.totalSms}건` : '';
+        const pushInfo = (debug as any).pushCount > 0 ? `앱 알림 ${(debug as any).pushCount}건` : '';
+        const scannedInfo = [smsInfo, pushInfo].filter(Boolean).join(' + ');
+
         showAlert({
-          title: '문자 스캔 완료',
-          message: debug.totalSms === 0
-            ? '최근 7일 내 문자가 없습니다.\n문자 읽기 권한을 확인해주세요.'
-            : debug.bankSmsCount === 0
-              ? `문자 ${debug.totalSms}건 중 금융 문자가 없습니다.`
-              : debug.parsedCount === 0
-                ? `금융 문자 ${debug.bankSmsCount}건이 있지만 파싱에 실패했습니다.`
-                : `파싱된 ${debug.parsedCount}건이 모두 이미 등록되었거나 제외된 내역입니다 ✅`,
-          icon: debug.totalSms === 0 ? 'warning' : 'success',
+          title: '알림 스캔 완료',
+          message: !scannedInfo
+            ? `최근 ${daysBack}일 내 알림이 없습니다.`
+            : debug.parsedCount === 0
+              ? `${scannedInfo}을 스캔했지만 금융 알림이 없습니다.`
+              : `${scannedInfo} 스캔 완료.\n${debug.parsedCount}건이 모두 이미 등록되었거나 제외된 내역입니다 ✅`,
+          icon: debug.totalSms === 0 && (debug as any).pushCount === 0 ? 'warning' : 'success',
           buttons: [{ text: '확인' }],
         });
         return;
@@ -673,7 +677,6 @@ const PendingTransactionsScreen: React.FC<{ navigation: any }> = ({ navigation }
 
       // 스크래핑된 항목을 pending 형식으로 변환 (카테고리 자동 매핑 포함)
       const newPending: PendingTransaction[] = scraped.map(sms => {
-        // 학습 매핑 또는 브랜드/키워드 매핑으로 카테고리 자동 제안
         let suggestedCategory: Category | undefined;
         if (sms.parsed.merchant) {
           const learned = getLearnedMapping(sms.parsed.merchant);
@@ -699,29 +702,27 @@ const PendingTransactionsScreen: React.FC<{ navigation: any }> = ({ navigation }
         };
       });
 
+      // source별 건수 계산
+      const smsCount = scraped.filter((s: any) => s.source === 'sms').length;
+      const pushCountResult = scraped.filter((s: any) => s.source === 'push').length;
+      const sourceDetail = smsCount > 0 && pushCountResult > 0
+        ? `(문자 ${smsCount}건 + 앱 알림 ${pushCountResult}건)`
+        : '';
+
       setPendingTransactions(prev => [...newPending, ...prev]);
       showAlert({
-        title: '문자 스캔 완료 📨',
-        message: `미등록 거래 ${scraped.length}건을 찾았습니다.\n확인 후 등록해주세요!`,
+        title: '알림 스캔 완료 📨',
+        message: `미등록 거래 ${scraped.length}건을 찾았습니다. ${sourceDetail}\n확인 후 등록해주세요!`,
         icon: 'info',
         buttons: [{ text: '확인' }],
       });
     } catch (error: any) {
-      if (error.message === 'SMS_PERMISSION_DENIED') {
-        showAlert({
-          title: '권한 필요',
-          message: '문자 읽기 권한을 허용해주세요.',
-          icon: 'warning',
-          buttons: [{ text: '확인' }],
-        });
-      } else {
-        showAlert({
-          title: '오류',
-          message: `문자 스캔 중 오류가 발생했습니다.\n${error.message || ''}`,
-          icon: 'error',
-          buttons: [{ text: '확인' }],
-        });
-      }
+      showAlert({
+        title: '오류',
+        message: `알림 스캔 중 오류가 발생했습니다.\n${error.message || ''}`,
+        icon: 'error',
+        buttons: [{ text: '확인' }],
+      });
     } finally {
       setIsScraping(false);
     }
@@ -891,13 +892,13 @@ const PendingTransactionsScreen: React.FC<{ navigation: any }> = ({ navigation }
                     alignItems: 'center',
                     justifyContent: 'center',
                   }}
-                  onPress={handleSmsScrape}
+                  onPress={() => setShowScrapeModal(true)}
                   disabled={isScraping}
                 >
                   {isScraping ? (
                     <ActivityIndicator size="small" color={Colors.Primary} />
                   ) : (
-                    <Icon name="mail-outline" size={20} color={Colors.Primary} />
+                    <Icon name="download-outline" size={20} color={Colors.Primary} />
                   )}
                 </TouchableOpacity>
               </View>
@@ -915,16 +916,16 @@ const PendingTransactionsScreen: React.FC<{ navigation: any }> = ({ navigation }
                   borderWidth: 1,
                   borderColor: Colors.Primary + '25',
                 }}
-                onPress={handleSmsScrape}
+                onPress={() => setShowScrapeModal(true)}
                 disabled={isScraping}
               >
                 {isScraping ? (
                   <ActivityIndicator size="small" color={Colors.Primary} />
                 ) : (
-                  <Icon name="mail-outline" size={18} color={Colors.Primary} />
+                  <Icon name="download-outline" size={18} color={Colors.Primary} />
                 )}
                 <Text style={{ color: Colors.Primary, fontWeight: '600', fontSize: 14 }}>
-                  {isScraping ? '문자 스캔 중...' : '문자 내역 불러오기'}
+                  {isScraping ? '알림 스캔 중...' : '알림 가져오기'}
                 </Text>
               </TouchableOpacity>
             )}
@@ -948,16 +949,16 @@ const PendingTransactionsScreen: React.FC<{ navigation: any }> = ({ navigation }
                 borderRadius: 24,
                 backgroundColor: Colors.Primary,
               }}
-              onPress={handleSmsScrape}
+              onPress={() => setShowScrapeModal(true)}
               disabled={isScraping}
             >
               {isScraping ? (
                 <ActivityIndicator size="small" color="#FFF" />
               ) : (
-                <Icon name="mail-outline" size={18} color="#FFF" />
+                <Icon name="download-outline" size={18} color="#FFF" />
               )}
               <Text style={{ color: '#FFF', fontWeight: '700', fontSize: 14 }}>
-                {isScraping ? '문자 스캔 중...' : '문자 내역 불러오기'}
+                {isScraping ? '알림 스캔 중...' : '알림 가져오기'}
               </Text>
             </TouchableOpacity>
           </View>
@@ -1047,6 +1048,90 @@ const PendingTransactionsScreen: React.FC<{ navigation: any }> = ({ navigation }
                     <Text style={styles.editModalSaveText}>저장</Text>
                   </TouchableOpacity>
                 </View>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+
+      {/* ─── 알림 가져오기 날짜 선택 모달 ─── */}
+      <Modal
+        visible={showScrapeModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowScrapeModal(false)}
+      >
+        <TouchableWithoutFeedback onPress={() => setShowScrapeModal(false)}>
+          <View style={{
+            flex: 1,
+            backgroundColor: 'rgba(0,0,0,0.5)',
+            justifyContent: 'center',
+            alignItems: 'center',
+          }}>
+            <TouchableWithoutFeedback>
+              <View style={{
+                backgroundColor: Colors.Surface,
+                borderRadius: 16,
+                paddingVertical: 24,
+                paddingHorizontal: 20,
+                width: '85%',
+                maxWidth: 340,
+              }}>
+                <Text style={{
+                  fontSize: 18,
+                  fontWeight: '700',
+                  color: Colors.Text,
+                  textAlign: 'center',
+                  marginBottom: 6,
+                }}>
+                  알림 가져오기
+                </Text>
+                <Text style={{
+                  fontSize: 13,
+                  color: Colors.TextSecondary,
+                  textAlign: 'center',
+                  marginBottom: 20,
+                }}>
+                  문자 + 금융앱 알림을 함께 가져옵니다
+                </Text>
+                {[
+                  { label: '1일', days: 1 },
+                  { label: '3일', days: 3 },
+                  { label: '7일', days: 7 },
+                  { label: '14일', days: 14 },
+                  { label: '30일', days: 30 },
+                ].map(({ label, days }) => (
+                  <TouchableOpacity
+                    key={days}
+                    style={{
+                      paddingVertical: 14,
+                      paddingHorizontal: 16,
+                      borderRadius: 10,
+                      backgroundColor: days === 7 ? Colors.Primary + '15' : Colors.Background,
+                      borderWidth: 1,
+                      borderColor: days === 7 ? Colors.Primary + '40' : Colors.CardBorder,
+                      marginBottom: 8,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                    onPress={() => handleSmsScrape(days)}
+                  >
+                    <Text style={{
+                      fontSize: 15,
+                      fontWeight: days === 7 ? '700' : '500',
+                      color: days === 7 ? Colors.Primary : Colors.Text,
+                    }}>
+                      최근 {label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+                <TouchableOpacity
+                  style={{ marginTop: 4, alignItems: 'center', paddingVertical: 8 }}
+                  onPress={() => setShowScrapeModal(false)}
+                >
+                  <Text style={{ color: Colors.TextMuted, fontSize: 14 }}>취소</Text>
+                </TouchableOpacity>
               </View>
             </TouchableWithoutFeedback>
           </View>
