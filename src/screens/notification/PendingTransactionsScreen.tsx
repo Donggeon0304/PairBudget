@@ -70,6 +70,9 @@ const PendingTransactionsScreen: React.FC<{ navigation: any }> = ({ navigation }
   const [isScraping, setIsScraping] = useState(false);
   const [showScrapeModal, setShowScrapeModal] = useState(false);
 
+  // 선택 제외용
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
   // Firestore 거래 내역 기반 카테고리 매핑 (description → category)
   const [merchantCategoryMap, setMerchantCategoryMap] = useState<Record<string, { categoryId: string; categoryName: string; categoryGroup: string; categoryIcon: string }>>({});
 
@@ -484,6 +487,109 @@ const PendingTransactionsScreen: React.FC<{ navigation: any }> = ({ navigation }
     });
   }, []);
 
+  // ─── 전체 제외 ──────────────────────────────────────────────────────────────
+
+  const handleRejectAll = useCallback(async () => {
+    if (pendingTransactions.length === 0) return;
+
+    showAlert({
+      title: '전체 제외',
+      message: `대기 중인 ${pendingTransactions.length}개 내역을 모두 제외하시겠습니까?`,
+      icon: 'confirm',
+      buttons: [
+        { text: '취소', style: 'cancel' },
+        {
+          text: '전체 제외',
+          style: 'destructive',
+          onPress: async () => {
+            for (const item of pendingTransactions) {
+              try {
+                if (item.parsed.amount) {
+                  const hash = generateTransactionHash(
+                    item.parsed.amount,
+                    item.parsed.merchant,
+                    item.parsed.dateTime,
+                    item.parsed.cardIssuer,
+                    item.receivedAt,
+                  );
+                  await addRejectedHash(hash);
+                }
+                await removePendingTransaction(item.id);
+              } catch (err) {
+                console.error('Reject all error:', err);
+              }
+            }
+            setPendingTransactions([]);
+            showAlert({ title: '완료', message: '모든 내역이 제외되었습니다.', icon: 'success' });
+          },
+        },
+      ],
+    });
+  }, [pendingTransactions]);
+
+  // ─── 선택 제외 ──────────────────────────────────────────────────────────────
+
+  const handleRejectSelected = useCallback(async () => {
+    if (selectedIds.size === 0) return;
+
+    showAlert({
+      title: '선택 제외',
+      message: `선택한 ${selectedIds.size}개 내역을 제외하시겠습니까?`,
+      icon: 'confirm',
+      buttons: [
+        { text: '취소', style: 'cancel' },
+        {
+          text: '제외',
+          style: 'destructive',
+          onPress: async () => {
+            const targetItems = pendingTransactions.filter(t => selectedIds.has(t.id));
+            for (const item of targetItems) {
+              try {
+                if (item.parsed.amount) {
+                  const hash = generateTransactionHash(
+                    item.parsed.amount,
+                    item.parsed.merchant,
+                    item.parsed.dateTime,
+                    item.parsed.cardIssuer,
+                    item.receivedAt,
+                  );
+                  await addRejectedHash(hash);
+                }
+                await removePendingTransaction(item.id);
+              } catch (err) {
+                console.error('Reject selected error:', err);
+              }
+            }
+            setPendingTransactions(prev => prev.filter(t => !selectedIds.has(t.id)));
+            setSelectedIds(new Set());
+            
+            showAlert({ title: '완료', message: `${targetItems.length}개 내역이 제외되었습니다.`, icon: 'success' });
+          },
+        },
+      ],
+    });
+  }, [selectedIds, pendingTransactions]);
+
+  const toggleSelectId = useCallback((id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }, []);
+
+  const toggleSelectAll = useCallback(() => {
+    if (selectedIds.size === pendingTransactions.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(pendingTransactions.map(t => t.id)));
+    }
+  }, [selectedIds, pendingTransactions]);
+
   const handleApproveAll = useCallback(async () => {
     if (pendingTransactions.length === 0 || !user?.householdId) return;
 
@@ -819,8 +925,24 @@ const PendingTransactionsScreen: React.FC<{ navigation: any }> = ({ navigation }
           <Icon name="chevron-forward" size={16} color={Colors.TextMuted} style={{ marginLeft: 'auto' }} />
         </TouchableOpacity>
 
-        {/* 등록/제외 버튼 */}
+        {/* 등록/제외 버튼 + 체크박스 */}
         <View style={styles.actions}>
+          <TouchableOpacity
+            style={{
+              paddingVertical: 10,
+              paddingHorizontal: 10,
+              borderRadius: BorderRadius.md,
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+            onPress={() => toggleSelectId(item.id)}
+          >
+            <Icon
+              name={selectedIds.has(item.id) ? 'checkbox' : 'square-outline'}
+              size={22}
+              color={selectedIds.has(item.id) ? Colors.Primary : Colors.TextMuted}
+            />
+          </TouchableOpacity>
           <TouchableOpacity style={styles.rejectButton} onPress={() => handleReject(item)}>
             <Text style={styles.rejectButtonText}>제외</Text>
           </TouchableOpacity>
@@ -876,31 +998,107 @@ const PendingTransactionsScreen: React.FC<{ navigation: any }> = ({ navigation }
             </View>
             {sortedTransactions.length > 0 && (
               <View style={{ flexDirection: 'row', gap: 8 }}>
-                <TouchableOpacity style={[styles.approveAllButton, { flex: 1 }]} onPress={handleApproveAll}>
-                  <Text style={styles.approveAllText}>
-                    전체 등록 ({pendingTransactions.length}개)
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={{
-                    paddingHorizontal: 14,
-                    paddingVertical: 12,
-                    borderRadius: BorderRadius.md,
-                    backgroundColor: Colors.Surface,
-                    borderWidth: 1,
-                    borderColor: Colors.Primary + '30',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                  onPress={() => setShowScrapeModal(true)}
-                  disabled={isScraping}
-                >
-                  {isScraping ? (
-                    <ActivityIndicator size="small" color={Colors.Primary} />
-                  ) : (
-                    <Icon name="download-outline" size={20} color={Colors.Primary} />
-                  )}
-                </TouchableOpacity>
+                {selectedIds.size > 0 ? (
+                  /* 선택된 항목이 있을 때 */
+                  <>
+                    <TouchableOpacity
+                      style={{
+                        flex: 1,
+                        paddingVertical: 12,
+                        borderRadius: BorderRadius.md,
+                        backgroundColor: Colors.Danger + '15',
+                        alignItems: 'center',
+                      }}
+                      onPress={handleRejectSelected}
+                    >
+                      <Text style={{
+                        color: Colors.Danger,
+                        fontSize: 15,
+                        fontWeight: '600',
+                      }}>
+                        선택 제외 ({selectedIds.size}개)
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={{
+                        paddingHorizontal: 14,
+                        paddingVertical: 12,
+                        borderRadius: BorderRadius.md,
+                        backgroundColor: Colors.Surface,
+                        borderWidth: 1,
+                        borderColor: Colors.TextMuted + '30',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                      onPress={toggleSelectAll}
+                    >
+                      <Icon
+                        name={selectedIds.size === pendingTransactions.length ? 'checkbox' : 'square-outline'}
+                        size={20}
+                        color={selectedIds.size === pendingTransactions.length ? Colors.Primary : Colors.TextMuted}
+                      />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={{
+                        paddingHorizontal: 14,
+                        paddingVertical: 12,
+                        borderRadius: BorderRadius.md,
+                        backgroundColor: Colors.Surface,
+                        borderWidth: 1,
+                        borderColor: Colors.TextMuted + '30',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                      onPress={() => setSelectedIds(new Set())}
+                    >
+                      <Icon name="close" size={20} color={Colors.TextMuted} />
+                    </TouchableOpacity>
+                  </>
+                ) : (
+                  /* 선택 없을 때 (기본) */
+                  <>
+                    <TouchableOpacity style={[styles.approveAllButton, { flex: 1 }]} onPress={handleApproveAll}>
+                      <Text style={styles.approveAllText}>
+                        전체 등록 ({pendingTransactions.length}개)
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={{
+                        paddingHorizontal: 14,
+                        paddingVertical: 12,
+                        borderRadius: BorderRadius.md,
+                        backgroundColor: Colors.Danger + '10',
+                        borderWidth: 1,
+                        borderColor: Colors.Danger + '25',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                      onPress={handleRejectAll}
+                    >
+                      <Icon name="trash-outline" size={20} color={Colors.Danger} />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={{
+                        paddingHorizontal: 14,
+                        paddingVertical: 12,
+                        borderRadius: BorderRadius.md,
+                        backgroundColor: Colors.Surface,
+                        borderWidth: 1,
+                        borderColor: Colors.Primary + '30',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                      onPress={() => setShowScrapeModal(true)}
+                      disabled={isScraping}
+                    >
+                      {isScraping ? (
+                        <ActivityIndicator size="small" color={Colors.Primary} />
+                      ) : (
+                        <Icon name="download-outline" size={20} color={Colors.Primary} />
+                      )}
+                    </TouchableOpacity>
+                  </>
+                )}
               </View>
             )}
             {sortedTransactions.length === 0 && (
