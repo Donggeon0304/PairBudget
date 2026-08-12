@@ -333,7 +333,14 @@ async function headlessNotificationHandler(rawNotification: any): Promise<void> 
   for (let i = 0; i < existing.length; i++) {
     const p = existing[i];
     const timeDiffMs = new Date().getTime() - new Date(p.receivedAt).getTime();
-    if (timeDiffMs >= 15 * 60 * 1000) continue; // 15분 이상 차이나면 다른 거래
+
+    // 거래시간(dateTime)이 동일하면 수신시각 차이 무관하게 중복 후보 유지
+    // (같은 거래가 앱 알림 + SMS로 시차를 두고 올 수 있음)
+    const newDt = (parsed.dateTime || '').trim();
+    const existDt = (p.parsed.dateTime || '').trim();
+    const hasSameDateTime = newDt !== '' && existDt !== '' && newDt === existDt;
+
+    if (!hasSameDateTime && timeDiffMs >= 15 * 60 * 1000) continue; // 거래시간 다르고 15분 이상이면 다른 거래
 
     // 같은 금액 + 같은 입출금 타입이면 중복 후보
     if (p.parsed.amount !== parsed.amount) continue;

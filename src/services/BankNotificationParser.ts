@@ -197,6 +197,8 @@ const ISSUER_KEYWORDS: [RegExp, string][] = [
   [/하나은행/, '하나'],
   [/국민은행/, 'KB국민'],
   [/농협은행/, '농협'],
+  [/농협/, '농협'],
+  [/\bNH\b/, '농협'],
   [/기업은행/, 'IBK기업'],
   [/IBK/, 'IBK기업'],
   [/SC제일/, 'SC제일'],
@@ -218,9 +220,7 @@ const ISSUER_KEYWORDS: [RegExp, string][] = [
   [/제로페이/, '제로페이'],
   [/토스페이/, '토스'],
   // 짧은 키워드 (마지막에 배치 - 다른 것에 매칭 안 됐을 때만)
-  [/농협/, '농협'],
   [/\bKB\b/, 'KB국민'],
-  [/\bNH\b/, '농협'],
 ];
 
 function parseAmount(text: string): number | null {
