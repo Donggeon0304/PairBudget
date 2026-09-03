@@ -311,7 +311,7 @@ const StatsScreen: React.FC = () => {
       .orderBy('date', 'desc')
       .onSnapshot(
         snap => {
-          const docs: {amount: number; isCouple: boolean; createdBy: string; ym: string}[] = [];
+          const docs: {amount: number; isCouple: boolean; createdBy: string; ym: string; categoryName: string}[] = [];
 
           snap.docs.forEach(doc => {
             const d = doc.data();

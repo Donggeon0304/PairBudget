@@ -83,37 +83,37 @@ const PendingTransactionsScreen: React.FC<{ navigation: any }> = ({ navigation }
 
       // 🟢 공동통장 중복 자동 정리: Firestore에 이미 등록된 거래는 대기 목록에서 제거
       if (user?.householdId && data && data.length > 0) {
-        const toRemoveIds: string[] = [];
-
-        for (const item of data) {
-          if (!item.parsed.amount) continue;
-          const txHash = generateTransactionHash(
-            item.parsed.amount,
-            item.parsed.merchant,
-            item.parsed.dateTime,
-            item.parsed.cardIssuer,
-            item.receivedAt,
-          );
-          try {
-            const snap = await firestore()
-              .collection('households')
-              .doc(user.householdId)
-              .collection('transactions')
-              .where('txHash', '==', txHash)
-              .limit(1)
-              .get();
-            if (!snap.empty) {
-              toRemoveIds.push(item.id);
+        // [병렬 실행] 모든 항목의 중복 체크를 동시에 수행 (순차 대비 N배 빠름)
+        const dedupResults = await Promise.all(
+          data.map(async (item) => {
+            if (!item.parsed.amount) return null;
+            const txHash = generateTransactionHash(
+              item.parsed.amount,
+              item.parsed.merchant,
+              item.parsed.dateTime,
+              item.parsed.cardIssuer,
+              item.receivedAt,
+            );
+            try {
+              const snap = await firestore()
+                .collection('households')
+                .doc(user.householdId!)
+                .collection('transactions')
+                .where('txHash', '==', txHash)
+                .limit(1)
+                .get();
+              return !snap.empty ? item.id : null;
+            } catch (e) {
+              return null; // Firestore 에러 시 해당 항목은 그냥 유지
             }
-          } catch (e) {
-            // Firestore 에러 시 해당 항목은 그냥 유지
-          }
-        }
+          })
+        );
+
+        const toRemoveIds = dedupResults.filter((id): id is string => id !== null);
 
         if (toRemoveIds.length > 0) {
-          for (const id of toRemoveIds) {
-            await removePendingTransaction(id);
-          }
+          // 삭제도 병렬 처리
+          await Promise.all(toRemoveIds.map(id => removePendingTransaction(id)));
           data = data.filter(d => !toRemoveIds.includes(d.id));
           console.log(`[PairBudget] 공동 거래 자동 정리: ${toRemoveIds.length}건 제거`);
         }
@@ -203,11 +203,11 @@ const PendingTransactionsScreen: React.FC<{ navigation: any }> = ({ navigation }
   // 화면 포커스 시마다 자동 새로고침 (알림 탭 → 재진입 시 포함)
   useFocusEffect(
     useCallback(() => {
-      // 학습된 카테고리 매핑 로드 (앱 재시작 후 메모리가 비어있을 수 있으므로)
-      initCategoryMapper().then(() => {
-        loadPending();
-      });
-      getCoupleAccountBanks().then(banks => setCoupleBanks(banks));
+      // 학습된 카테고리 매핑 + 공동 계좌 + 대기 내역 동시 로드
+      Promise.all([
+        initCategoryMapper(),
+        getCoupleAccountBanks().then(banks => setCoupleBanks(banks)),
+      ]).then(() => loadPending());
     }, [loadPending])
   );
 
@@ -419,21 +419,23 @@ const PendingTransactionsScreen: React.FC<{ navigation: any }> = ({ navigation }
         });
 
 
-      await removePendingTransaction(item.id);
+      // Firestore 등록 성공 → 후처리는 병렬로 처리 (UI 응답 속도 개선)
+      const merchant = item.parsed.merchant;
+      const postProcessing = Promise.all([
+        removePendingTransaction(item.id),
+        merchant && category
+          ? learnCategoryMapping(merchant, category.id, category.name, (category as any).group)
+          : Promise.resolve(),
+      ]).catch(e => console.warn('[PairBudget] 후처리 오류 (무시 가능):', e));
+
+      // UI 즉시 반영
       setPendingTransactions(prev => {
         const next = prev.filter(t => t.id !== item.id);
-        // 아이템이 적어지면 스크롤 위치 리셋
         if (next.length <= 3) {
           setTimeout(() => flatListRef.current?.scrollToOffset({ offset: 0, animated: true }), 100);
         }
         return next;
       });
-
-      // 학습: merchant → category 매핑 저장
-      const merchant = item.parsed.merchant;
-      if (merchant && category) {
-        await learnCategoryMapping(merchant, category.id, category.name, (category as any).group);
-      }
 
       const resultLabel = txType === 'income' ? '수입' : '지출';
       showAlert({
@@ -441,6 +443,9 @@ const PendingTransactionsScreen: React.FC<{ navigation: any }> = ({ navigation }
         message: `${description}: ${formatCurrency(amount)} (${resultLabel})`,
         icon: 'success',
       });
+
+      // 후처리 완료 대기 (백그라운드)
+      await postProcessing;
     } catch (err: any) {
       console.error('Approve transaction error:', err);
       showAlert({ title: '오류', message: err.message || '등록에 실패했습니다.', icon: 'error' });
