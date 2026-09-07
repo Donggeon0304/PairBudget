@@ -18,11 +18,10 @@
 
 import firestore from '@react-native-firebase/firestore';
 import { Platform } from 'react-native';
-import ReactNativeBlobUtil from 'react-native-blob-util';
 
 // ⚠️ 릴리즈 시 build.gradle의 versionCode/versionName과 반드시 함께 업데이트할 것
-export const CURRENT_VERSION_CODE = 32;
-export const CURRENT_VERSION_NAME = '1.31';
+export const CURRENT_VERSION_CODE = 33;
+export const CURRENT_VERSION_NAME = '1.32';
 
 export interface UpdateInfo {
   latestVersionCode: number;
@@ -89,6 +88,8 @@ export async function downloadApkViaManager(
   if (Platform.OS !== 'android') return { success: false, error: 'Android 전용' };
 
   try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const ReactNativeBlobUtil = require('react-native-blob-util').default;
     const downloadDir = ReactNativeBlobUtil.fs.dirs.DownloadDir;
     const fileName = `PairBudget-v${CURRENT_VERSION_CODE + 1}.apk`;
     const filePath = `${downloadDir}/${fileName}`;
