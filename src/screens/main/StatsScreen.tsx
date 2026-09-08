@@ -551,6 +551,109 @@ const StatsScreen: React.FC = () => {
             </TouchableOpacity>
           ))}
         </View>
+        {/* ─── Total Amount ─── */}
+        <View style={styles.totalAmountCard}>
+          <Text style={styles.totalAmountLabel}>
+            이번 달 {typeFilter === 'expense' ? '지출' : '수입'}
+          </Text>
+          <Text style={styles.totalAmountValue}>
+            {formatCurrency(typeFilter === 'expense' ? currentData.expense : currentData.income)}
+          </Text>
+        </View>
+
+        {/* ─── Pie Chart ─── */}
+        {categoryRankings.length > 0 && (
+          <GlassCard style={styles.rankingCard}>
+            <View style={styles.sectionHeaderRow}>
+              <Icon name="pie-chart-outline" size={20} color={Colors.Primary} style={styles.sectionHeaderIcon} />
+              <Text style={styles.sectionTitle}>카테고리별 비율</Text>
+            </View>
+            <View style={{alignItems: 'center', paddingVertical: Spacing.md}}>
+              {/* SVG Donut Chart */}
+              <View style={{width: 220, height: 220, marginBottom: Spacing.lg}}>
+                <Svg width={220} height={220} viewBox="0 0 220 220">
+                  {(() => {
+                    const cx = 110, cy = 110, outerR = 90, innerR = 55;
+                    let startAngle = -90;
+                    const slices: any[] = [];
+
+                    categoryRankings.forEach((cat, i) => {
+                      const angle = Math.min((cat.total / totalAllCategories) * 360, 359.99);
+                      if (angle <= 0) return;
+                      
+                      const endAngle = startAngle + angle;
+                      const largeArc = angle > 180 ? 1 : 0;
+                      const startRad = (startAngle * Math.PI) / 180;
+                      const endRad = (endAngle * Math.PI) / 180;
+                      const x1 = cx + outerR * Math.cos(startRad);
+                      const y1 = cy + outerR * Math.sin(startRad);
+                      const x2 = cx + outerR * Math.cos(endRad);
+                      const y2 = cy + outerR * Math.sin(endRad);
+                      const ix1 = cx + innerR * Math.cos(startRad);
+                      const iy1 = cy + innerR * Math.sin(startRad);
+                      const ix2 = cx + innerR * Math.cos(endRad);
+                      const iy2 = cy + innerR * Math.sin(endRad);
+                      
+                      const isSelected = selectedPieIndex === i;
+                      const isAnySelected = selectedPieIndex !== null;
+                      const d = [
+                        `M ${x1} ${y1}`,
+                        `A ${outerR} ${outerR} 0 ${largeArc} 1 ${x2} ${y2}`,
+                        `L ${ix2} ${iy2}`,
+                        `A ${innerR} ${innerR} 0 ${largeArc} 0 ${ix1} ${iy1}`,
+                        'Z',
+                      ].join(' ');
+
+                      // 선택된 조각을 중심에서 바깥으로 8px 밀어내기 (explode)
+                      const midAngle = ((startAngle + endAngle) / 2 * Math.PI) / 180;
+                      const explodeDistance = isSelected ? 8 : 0;
+                      const tx = explodeDistance * Math.cos(midAngle);
+                      const ty = explodeDistance * Math.sin(midAngle);
+
+                      slices.push(
+                        <Path
+                          key={`pie-${i}`}
+                          d={d}
+                          fill={cat.color}
+                          opacity={!isAnySelected || isSelected ? 1 : 0.3}
+                          transform={`translate(${tx}, ${ty})`}
+                          onPress={() => setSelectedPieIndex(selectedPieIndex === i ? null : i)}
+                        />
+                      );
+                      startAngle = endAngle;
+                    });
+                    return slices;
+                  })()}
+                  <SvgText x={110} y={106} textAnchor="middle" fontSize={11} fill={Colors.TextMuted}>이번 달 {typeFilter === 'expense' ? '지출' : '수입'}</SvgText>
+                  <SvgText x={110} y={126} textAnchor="middle" fontSize={16} fontWeight="700" fill={Colors.Text}>{formatCompactCurrency(totalAllCategories)}</SvgText>
+                </Svg>
+              </View>
+              {/* Legend */}
+              <View style={{width: '100%'}}>
+                {categoryRankings.map((cat, i) => (
+                  <TouchableOpacity
+                    key={`legend-${i}`}
+                    style={{flexDirection: 'row', alignItems: 'center', marginBottom: 12, opacity: selectedPieIndex === null || selectedPieIndex === i ? 1 : 0.4}}
+                    onPress={() => setSelectedGroupForDetail(cat.name)}
+                    activeOpacity={0.7}
+                  >
+                    <View style={{width: 12, height: 12, borderRadius: 6, backgroundColor: cat.color, marginRight: 12}} />
+                    <Text style={{fontSize: 14, color: Colors.Text, flex: 1}} numberOfLines={1}>{cat.name}</Text>
+                    <Text style={{fontSize: 14, fontWeight: '600', color: Colors.Text, marginRight: 8}}>
+                      {formatCurrency(cat.total)}
+                    </Text>
+                    <Text style={{fontSize: 14, fontWeight: '600', color: Colors.TextSecondary, width: 40, textAlign: 'right'}}>
+                      {totalAllCategories > 0 ? ((cat.total / totalAllCategories) * 100).toFixed(0) : 0}%
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          </GlassCard>
+        )}
+
+
+
 
         {/* ─── Monthly Bar Chart ─── */}
         <Animated.View style={{ opacity: fadeAnim }}>
@@ -655,256 +758,6 @@ const StatsScreen: React.FC = () => {
             )}
           </GlassCard>
         </Animated.View>
-
-
-
-        {/* ─── Pie Chart ─── */}
-        {categoryRankings.length > 0 && (
-          <GlassCard style={styles.rankingCard}>
-            <View style={styles.sectionHeaderRow}>
-              <Icon name="pie-chart-outline" size={20} color={Colors.Primary} style={styles.sectionHeaderIcon} />
-              <Text style={styles.sectionTitle}>카테고리별 비율</Text>
-              <View style={{flex: 1}} />
-              <Text style={{fontSize: 15, fontWeight: '800', color: Colors.Text}}>{formatCurrency(totalAllCategories)}</Text>
-            </View>
-            <View style={{flexDirection: 'row', alignItems: 'center', paddingVertical: Spacing.md}}>
-              {/* SVG Donut Chart */}
-              <View style={{width: 160, height: 160, marginRight: Spacing.md}}>
-                <Svg width={160} height={160} viewBox="0 0 160 160">
-                  {(() => {
-                    const cx = 80, cy = 80, r = 70;
-                    let startAngle = -90;
-                    const slices: any[] = [];
-
-                    categoryRankings.forEach((cat, i) => {
-                      const angle = Math.min((cat.total / totalAllCategories) * 360, 359.99);
-                      if (angle <= 0) return;
-                      
-                      const endAngle = startAngle + angle;
-                      const largeArc = angle > 180 ? 1 : 0;
-                      const startRad = (startAngle * Math.PI) / 180;
-                      const endRad = (endAngle * Math.PI) / 180;
-                      const x1 = cx + r * Math.cos(startRad);
-                      const y1 = cy + r * Math.sin(startRad);
-                      const x2 = cx + r * Math.cos(endRad);
-                      const y2 = cy + r * Math.sin(endRad);
-                      const isSelected = selectedPieIndex === i;
-                      const isAnySelected = selectedPieIndex !== null;
-                      const d = [
-                        `M ${cx} ${cy}`,
-                        `L ${x1} ${y1}`,
-                        `A ${r} ${r} 0 ${largeArc} 1 ${x2} ${y2}`,
-                        'Z',
-                      ].join(' ');
-
-                      // 선택된 조각을 중심에서 바깥으로 8px 밀어내기 (explode)
-                      const midAngle = ((startAngle + endAngle) / 2 * Math.PI) / 180;
-                      const explodeDistance = isSelected ? 8 : 0;
-                      const tx = explodeDistance * Math.cos(midAngle);
-                      const ty = explodeDistance * Math.sin(midAngle);
-
-                      slices.push(
-                        <Path
-                          key={`pie-${i}`}
-                          d={d}
-                          fill={cat.color}
-                          opacity={!isAnySelected || isSelected ? 1 : 0.3}
-                          transform={`translate(${tx}, ${ty})`}
-                          onPress={() => setSelectedPieIndex(selectedPieIndex === i ? null : i)}
-                        />
-                      );
-                      startAngle = endAngle;
-                    });
-                    return slices;
-                  })()}
-                </Svg>
-              </View>
-              {/* Legend */}
-              <View style={{flex: 1}}>
-                {categoryRankings.slice(0, 5).map((cat, i) => (
-                  <TouchableOpacity
-                    key={`legend-${i}`}
-                    style={{flexDirection: 'row', alignItems: 'center', marginBottom: 6, opacity: selectedPieIndex === null || selectedPieIndex === i ? 1 : 0.4}}
-                    onPress={() => setSelectedPieIndex(selectedPieIndex === i ? null : i)}
-                    activeOpacity={0.7}
-                  >
-                    <View style={{width: 10, height: 10, borderRadius: 5, backgroundColor: cat.color, marginRight: 8}} />
-                    <Text style={{fontSize: 12, color: Colors.Text, flex: 1}} numberOfLines={1}>{cat.name}</Text>
-                    <Text style={{fontSize: 12, fontWeight: '600', color: Colors.TextSecondary}}>
-                      {totalAllCategories > 0 ? ((cat.total / totalAllCategories) * 100).toFixed(0) : 0}%
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
-          </GlassCard>
-        )}
-
-        {/* ─── Category Ranking ─── */}
-        <GlassCard style={styles.rankingCard}>
-          <View style={styles.sectionHeaderRow}>
-            <Icon name={typeFilter === 'expense' ? 'trending-down-outline' : 'trending-up-outline'} size={20} color={typeFilter === 'expense' ? Colors.Primary : Colors.Accent} style={styles.sectionHeaderIcon} />
-            <Text style={styles.sectionTitle}>{typeFilter === 'expense' ? '지출' : '수입'} TOP</Text>
-          </View>
-          <Text style={styles.sectionSubtitle}>
-            이번 달 카테고리별 {typeFilter === 'expense' ? '지출' : '수입'} 순위
-          </Text>
-
-          {categoryRankings.length > 0 ? (
-            categoryRankings.map((cat, index) => {
-              const pct = totalAllCategories > 0
-                ? (cat.total / totalAllCategories) * 100
-                : 0;
-              const isTop3 = index < 3;
-
-              const isExpanded = expandedGroup === cat.name;
-
-              return (
-                <View key={`rank-${cat.name}-${index}`}>
-                  <TouchableOpacity
-                    style={styles.rankItem}
-                    onPress={() => setSelectedGroupForDetail(cat.name)}
-                    onLongPress={() => setExpandedGroup(isExpanded ? null : cat.name)}
-                    activeOpacity={0.7}
-                  >
-                    <View style={styles.rankLeft}>
-                      <Text
-                        style={[
-                          styles.rankNumber,
-                          isTop3 && styles.rankNumberTop3,
-                        ]}
-                      >
-                        {getMedalEmoji(index)}
-                      </Text>
-                      <View
-                        style={[
-                          styles.rankIcon,
-                          { backgroundColor: `${cat.color}20` },
-                        ]}
-                      >
-                        <CategoryIcon icon={cat.icon} categoryName={cat.name} size={16} color={cat.color} />
-                      </View>
-                      <Text style={styles.rankName}>{cat.name}</Text>
-                      {cat.subcategories && cat.subcategories.length > 0 && (
-                        <Icon name={isExpanded ? "chevron-up" : "chevron-down"} size={14} color={Colors.TextMuted} style={{marginLeft: 4}} />
-                      )}
-                    </View>
-                    <View style={styles.rankRight}>
-                      <View style={styles.rankBarContainer}>
-                        <Animated.View
-                          style={[
-                            styles.rankBar,
-                            {
-                              width: `${pct}%` as any,
-                              backgroundColor: cat.color,
-                            },
-                          ]}
-                        />
-                      </View>
-                      <Text style={styles.rankAmount}>
-                        {formatCurrency(cat.total)}
-                      </Text>
-                      <Text style={styles.rankPct}>{pct.toFixed(0)}%</Text>
-                    </View>
-                  </TouchableOpacity>
-
-                  {/* 서브 카테고리 표시 */}
-                  {isExpanded && cat.subcategories && cat.subcategories.length > 0 && (
-                    <View style={styles.subCategoriesContainer}>
-                      {cat.subcategories.map((sub, subIdx) => {
-                        const subPct = cat.total > 0 ? (sub.total / cat.total) * 100 : 0;
-                        return (
-                          <View key={`sub-${sub.name}-${subIdx}`} style={styles.subCategoryItem}>
-                            <View style={styles.subCategoryLeft}>
-                              <View style={styles.subCategoryBullet} />
-                              <Text style={styles.subCategoryName}>{sub.name === cat.name ? '기타/기본' : sub.name}</Text>
-                            </View>
-                            <View style={styles.subCategoryRight}>
-                              <Text style={styles.subCategoryAmount}>{formatCurrency(sub.total)}</Text>
-                              <Text style={styles.subCategoryPct}>{subPct.toFixed(0)}%</Text>
-                            </View>
-                          </View>
-                        );
-                      })}
-                    </View>
-                  )}
-                </View>
-              );
-            })
-          ) : (
-            <View style={styles.emptySection}>
-              <Text style={styles.emptyText}>이번 달 지출 내역이 없어요</Text>
-            </View>
-          )}
-        </GlassCard>
-
-        {/* ─── Income vs Expense ─── */}
-        <GlassCard style={styles.comparisonCard}>
-          <View style={styles.sectionHeaderRow}>
-            <Icon name="swap-horizontal-outline" size={20} color={Colors.Primary} style={styles.sectionHeaderIcon} />
-            <Text style={styles.sectionTitle}>수입 vs 지출</Text>
-          </View>
-
-                    {(currentData.income > 0 || currentData.expense > 0) ? (
-            (() => {
-              const maxVal = Math.max(currentData.income, currentData.expense);
-              const incomeWidth = maxVal > 0 ? (currentData.income / maxVal) * 100 : 0;
-              const expenseWidth = maxVal > 0 ? (currentData.expense / maxVal) * 100 : 0;
-              
-              return (
-              <>
-                <View style={styles.comparisonBars}>
-                  {/* Income bar */}
-                  <View style={styles.comparisonBarItem}>
-                    <Text style={styles.comparisonLabel}>수입</Text>
-                    <View style={styles.comparisonBarBg}>
-                      <View
-                        style={[
-                          styles.comparisonBarFill,
-                          {
-                            width: `${incomeWidth}%` as any,
-                            backgroundColor: Colors.Income,
-                          },
-                        ]}
-                      />
-                    </View>
-                    <Text style={[styles.comparisonAmount, { color: Colors.Income }]}>
-                      {formatCurrency(currentData.income)}
-                    </Text>
-                  </View>
-
-                  {/* Expense bar */}
-                  <View style={styles.comparisonBarItem}>
-                    <Text style={styles.comparisonLabel}>지출</Text>
-                    <View style={styles.comparisonBarBg}>
-                      <View
-                        style={[
-                          styles.comparisonBarFill,
-                          {
-                            width: `${expenseWidth}%` as any,
-                            backgroundColor: Colors.Expense,
-                          },
-                        ]}
-                      />
-                    </View>
-                    <Text style={[styles.comparisonAmount, { color: Colors.Expense }]}>
-                      {formatCurrency(currentData.expense)}
-                    </Text>
-                  </View>
-                </View>
-              </>
-              );
-            })()
-          ) : (
-            <View style={styles.emptySection}>
-              <Text style={styles.emptyText}>이번 달 거래 내역이 없어요</Text>
-            </View>
-          )}
-        </GlassCard>
-
-
-
-        <View style={{ height: Spacing.xxl }} />
       </ScrollView>
 
       {/* ─── Category Detail Modal ─── */}
@@ -1012,8 +865,8 @@ const StatsScreen: React.FC = () => {
           const donutR = 72;
 
           // ── Line Chart dimensions ──
-          const chartMargin = { top: 20, right: 16, bottom: 32, left: 50 };
-          const lineChartW = SCREEN_WIDTH - (Spacing.md * 2) - 40;
+          const chartMargin = { top: 20, right: 24, bottom: 32, left: 50 };
+          const lineChartW = SCREEN_WIDTH - (Spacing.md * 4);
           const lineChartH = 200;
           const plotW = lineChartW - chartMargin.left - chartMargin.right;
           const plotH = lineChartH - chartMargin.top - chartMargin.bottom;
@@ -1952,6 +1805,23 @@ const styles = StyleSheet.create({
   emptyText: {
     fontSize: 14,
     color: Colors.TextMuted,
+  },
+  totalAmountCard: {
+    alignItems: 'center',
+    paddingVertical: Spacing.lg,
+    marginBottom: Spacing.sm,
+  },
+  totalAmountLabel: {
+    fontSize: 14,
+    color: Colors.TextMuted,
+    fontWeight: '500',
+    marginBottom: 4,
+  },
+  totalAmountValue: {
+    fontSize: 32,
+    fontWeight: '800',
+    color: Colors.Text,
+    letterSpacing: -1,
   },
 });
 

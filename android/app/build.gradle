@@ -83,8 +83,8 @@ android {
         applicationId "com.pairbudget"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 33
-        versionName "1.32"
+        versionCode 34
+        versionName "1.33"
     }
 
     externalNativeBuild {

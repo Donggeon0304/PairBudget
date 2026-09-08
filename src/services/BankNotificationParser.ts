@@ -388,6 +388,9 @@ function parseMerchantGeneric(text: string): string | null {
     '체크', '신용', '해외', '일시불', '인출', '환불', '알림',
     '통장', '잔액', '은행', '카드', '님', '건',
     '입출금통장', '자유입출금',
+    // 거래 관련 노이즈 (가맹점명 불가)
+    '거래', '거래후', '후', '충전', '충전금액', '충전계좌',
+    '송금', '코드송금', '완료', '받는사람', '일시',
     // 거래 수단/방식 (가맹점명 불가)
     '스마트폰출금', '스마트폰입금', 'ATM출금', 'ATM입금',
     'CD출금', 'CD입금', '자동이체', '타행이체', '당행이체',
@@ -408,16 +411,26 @@ function parseMerchantGeneric(text: string): string | null {
         return true;
       }).join(' ').trim();
       // 앞뒤 특수문자 정리 (짝 있는 괄호는 유지)
-      let result = cleaned.replace(/^[\-:]+/, '').replace(/[\-:]+$/, '');
-      // 짝 없는 닫는 괄호만 제거
+      let result = cleaned.replace(/^[\-:\/\s]+/, '').replace(/[\-:\/\s]+$/, '');
+      // 짝 없는 닫는 괄호 제거
       const openCount = (result.match(/\(/g) || []).length;
       const closeCount = (result.match(/\)/g) || []).length;
       if (closeCount > openCount) {
-        // 끝에서부터 초과분만큼 ) 제거
         let excess = closeCount - openCount;
         result = result.replace(/\)+$/, (m) => m.substring(0, Math.max(0, m.length - excess)));
       }
-      return result;
+      // 짝 없는 여는 괄호 제거
+      if (openCount > closeCount) {
+        let excess = openCount - closeCount;
+        // 끝에서부터 초과분 ( 제거
+        for (let j = result.length - 1; j >= 0 && excess > 0; j--) {
+          if (result[j] === '(') {
+            result = result.substring(0, j) + result.substring(j + 1);
+            excess--;
+          }
+        }
+      }
+      return result.trim();
     })
     .filter(s => {
       if (s.length === 0) return false;
@@ -572,11 +585,14 @@ export function parseNotification(rawText: string, packageName: string): ParsedN
   };
 
   const parsed = parseGeneric(text);
+  const cardIssuer = parsed.cardIssuer || getBrandName(packageName) || null;
   return {
     ...base,
     ...parsed,
     // cardIssuer 우선순위: 텍스트에서 추출한 값 > 패키지명 브랜드 매핑 > null
-    cardIssuer: parsed.cardIssuer || getBrandName(packageName) || null,
+    cardIssuer,
+    // merchant가 null이면 cardIssuer로 fallback (빈 가맹점 방지)
+    merchant: parsed.merchant || cardIssuer,
   };
 }
 
