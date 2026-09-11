@@ -77,6 +77,7 @@ const TransactionListScreen: React.FC<TransactionListScreenProps> = ({ navigatio
   const fiscalCycle = useFiscalCycle();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [filter, setFilter] = useState<FilterType>('personal');
+  const [typeFilter, setTypeFilter] = useState<'all' | 'income' | 'expense'>('all');
   const [refreshing, setRefreshing] = useState(false);
   const fabScale = useRef(new Animated.Value(1)).current;
 
@@ -119,6 +120,10 @@ const TransactionListScreen: React.FC<TransactionListScreenProps> = ({ navigatio
     } else if (filter === 'couple') {
       filtered = filtered.filter(tx => tx.isCouple);
     }
+    // 수입/지출 타입 필터
+    if (typeFilter !== 'all') {
+      filtered = filtered.filter(tx => tx.type === typeFilter);
+    }
     const sorted = [...filtered].sort((a, b) => b.date.getTime() - a.date.getTime());
     const groups: Map<string, DateGroup> = new Map();
     sorted.forEach(tx => {
@@ -130,7 +135,7 @@ const TransactionListScreen: React.FC<TransactionListScreenProps> = ({ navigatio
       if (tx.type === 'income') g.dayIncome += tx.amount;
     });
     return Array.from(groups.values());
-  }, [filter, transactions, user?.uid]);
+  }, [filter, typeFilter, transactions, user?.uid]);
 
   const monthlySummary = useMemo(() => {
     let filtered = transactions;
@@ -239,24 +244,38 @@ const TransactionListScreen: React.FC<TransactionListScreenProps> = ({ navigatio
               </View>
             </View>
 
-            {/* ─── Monthly Summary ─── */}
+            {/* ─── Monthly Summary (터치로 수입/지출 필터) ─── */}
             <View style={styles.summaryCard}>
-              <View style={styles.summaryItem}>
+              <TouchableOpacity
+                style={[styles.summaryItem, typeFilter === 'income' && styles.summaryItemActive]}
+                onPress={() => setTypeFilter(typeFilter === 'income' ? 'all' : 'income')}
+                activeOpacity={0.7}
+              >
                 <Text style={styles.summaryLabel}>수입</Text>
                 <Text style={[styles.summaryValue, {color: Colors.Income}]}>+{formatCurrency(monthlySummary.totalIncome)}</Text>
-              </View>
+                {typeFilter === 'income' && <View style={[styles.summaryUnderline, {backgroundColor: Colors.Income}]} />}
+              </TouchableOpacity>
               <View style={[styles.summaryDivider]} />
-              <View style={styles.summaryItem}>
+              <TouchableOpacity
+                style={[styles.summaryItem, typeFilter === 'expense' && styles.summaryItemActive]}
+                onPress={() => setTypeFilter(typeFilter === 'expense' ? 'all' : 'expense')}
+                activeOpacity={0.7}
+              >
                 <Text style={styles.summaryLabel}>지출</Text>
                 <Text style={[styles.summaryValue, {color: Colors.Expense}]}>-{formatCurrency(monthlySummary.totalExpense)}</Text>
-              </View>
+                {typeFilter === 'expense' && <View style={[styles.summaryUnderline, {backgroundColor: Colors.Expense}]} />}
+              </TouchableOpacity>
               <View style={[styles.summaryDivider]} />
-              <View style={styles.summaryItem}>
+              <TouchableOpacity
+                style={[styles.summaryItem, typeFilter === 'all' && styles.summaryItemActive]}
+                onPress={() => setTypeFilter('all')}
+                activeOpacity={0.7}
+              >
                 <Text style={styles.summaryLabel}>합계</Text>
                 <Text style={[styles.summaryValue, {color: monthlySummary.balance >= 0 ? '#27AE60' : Colors.Expense}]}>
                   {monthlySummary.balance >= 0 ? '+' : ''}{formatCurrency(monthlySummary.balance)}
                 </Text>
-              </View>
+              </TouchableOpacity>
             </View>
 
             {/* ─── Filter Chips ─── */}
@@ -553,7 +572,18 @@ const styles = StyleSheet.create({
   },
   summaryItem: {
     flex: 1,
-    alignItems: 'center',
+    alignItems: 'center' as const,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  summaryItemActive: {
+    backgroundColor: Colors.Surface,
+  },
+  summaryUnderline: {
+    height: 2,
+    width: 24,
+    borderRadius: 1,
+    marginTop: 4,
   },
   summaryLabel: {
     fontSize: 11,

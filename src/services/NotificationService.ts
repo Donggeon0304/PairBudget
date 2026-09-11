@@ -295,14 +295,14 @@ async function headlessNotificationHandler(rawNotification: any): Promise<void> 
     : null;
 
   let suggestedCategoryObj: Category | undefined;
-  if (learnedMapping && suggestedCategoryName) {
+  if (learnedMapping) {
     // 사용자가 학습시킨 카테고리 → 학습 데이터에서 id/group 가져옴
     suggestedCategoryObj = {
       id: learnedMapping.categoryId,
       name: learnedMapping.categoryName,
       icon: 'pricetag-outline',
       color: '#6C5CE7',
-      type: 'expense',
+      type: parsed.incomeOrExpense === 'income' ? 'income' : 'expense',
       group: learnedMapping.group,
       order: 999,
       isDefault: false,
