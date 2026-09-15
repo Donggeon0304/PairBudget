@@ -409,38 +409,49 @@ async function headlessNotificationHandler(rawNotification: any): Promise<void> 
       break;
     }
 
-    // issuer가 다르고 다른 앱에서 온 경우 → 시간 비교로 같은 거래인지 판단
+    // issuer가 다르고 다른 앱에서 온 같은 금액 → ±10분 이내면 중복 (같은 결제의 다른 알림)
     if (parsed.packageName && p.parsed.packageName && parsed.packageName !== p.parsed.packageName) {
       const t1 = (parsed.dateTime || '').trim();
       const t2 = (p.parsed.dateTime || '').trim();
-      // 둘 다 dateTime이 있고 같으면 → 중복
-      if (t1 && t2 && t1 === t2) {
-        duplicateIndex = i;
-        break;
+
+      // "MM/DD HH:MM" → 총 분 수로 변환
+      const toMinutes = (dt: string): number | null => {
+        const m = dt.match(/(\d{2})\/(\d{2})\s+(\d{2}):(\d{2})/);
+        if (!m) return null;
+        return parseInt(m[1], 10) * 43200 + parseInt(m[2], 10) * 1440 + parseInt(m[3], 10) * 60 + parseInt(m[4], 10);
+      };
+
+      // 둘 다 dateTime이 있는 경우 → ±10분 이내면 중복
+      if (t1 && t2) {
+        const m1 = toMinutes(t1);
+        const m2 = toMinutes(t2);
+        if (m1 !== null && m2 !== null && Math.abs(m1 - m2) <= 10) {
+          duplicateIndex = i;
+          break;
+        }
+        continue;
       }
-      // 한쪽만 dateTime이 있는 경우 → receivedAt으로 비교
-      if ((t1 || t2) && !(t1 && t2)) {
+
+      // 한쪽만 dateTime이 있는 경우 → receivedAt을 변환해서 ±10분 비교
+      if (t1 || t2) {
         const knownTime = t1 || t2;
         const fallbackDate = t1 ? new Date(p.receivedAt) : new Date();
         const mm = String(fallbackDate.getMonth() + 1).padStart(2, '0');
         const dd = String(fallbackDate.getDate()).padStart(2, '0');
         const hh = String(fallbackDate.getHours()).padStart(2, '0');
-        const min = String(fallbackDate.getMinutes()).padStart(2, '0');
-        const receivedTimeStr = `${mm}/${dd} ${hh}:${min}`;
-        if (knownTime === receivedTimeStr) {
+        const mn = String(fallbackDate.getMinutes()).padStart(2, '0');
+        const knownMin = toMinutes(knownTime);
+        const fallbackMin = toMinutes(`${mm}/${dd} ${hh}:${mn}`);
+        if (knownMin !== null && fallbackMin !== null && Math.abs(knownMin - fallbackMin) <= 10) {
           duplicateIndex = i;
           break;
         }
-        // 1분 차이 허용
-        const fb2 = new Date(fallbackDate.getTime() - 60000);
-        const rts2 = `${String(fb2.getMonth()+1).padStart(2,'0')}/${String(fb2.getDate()).padStart(2,'0')} ${String(fb2.getHours()).padStart(2,'0')}:${String(fb2.getMinutes()).padStart(2,'0')}`;
-        if (knownTime === rts2) {
-          duplicateIndex = i;
-          break;
-        }
+        continue;
       }
-      // dateTime이 다르거나 매칭 안 되면 별개 거래
-      continue;
+
+      // 둘 다 dateTime이 없으면 → receivedAt 15분 이내(L343 통과)이므로 중복 처리
+      duplicateIndex = i;
+      break;
     }
 
     // 2. 같은 앱에서 온 알림이고, 가맹점명이 양쪽 다 있고 서로 포함 관계이면 중복

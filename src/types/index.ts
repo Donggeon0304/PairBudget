@@ -120,6 +120,8 @@ export const DEFAULT_CATEGORIES: Omit<Category, 'id'>[] = [
   { name: '주유', group: '교통', icon: 'speedometer-outline', color: '#6C5CE7', type: 'expense', order: 8, isDefault: true },
   { name: '주차', group: '교통', icon: 'navigate-outline', color: '#A29BFE', type: 'expense', order: 9, isDefault: true },
   { name: '톨게이트', group: '교통', icon: 'flag-outline', color: '#5F27CD', type: 'expense', order: 10, isDefault: true },
+  { name: '자동차정비', group: '교통', icon: 'construct-outline', color: '#636E72', type: 'expense', order: 10.5, isDefault: true },
+  { name: '세차', group: '교통', icon: 'water-outline', color: '#00B4D8', type: 'expense', order: 10.6, isDefault: true },
   // ── 쇼핑 (5개) ──
   { name: '의류', group: '쇼핑', icon: 'shirt-outline', color: '#FD79A8', type: 'expense', order: 11, isDefault: true },
   { name: '생활용품', group: '쇼핑', icon: 'basket-outline', color: '#E84393', type: 'expense', order: 12, isDefault: true },

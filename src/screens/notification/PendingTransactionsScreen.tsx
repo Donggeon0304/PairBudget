@@ -81,30 +81,45 @@ const PendingTransactionsScreen: React.FC<{ navigation: any }> = ({ navigation }
       setIsLoading(true);
       let data = await getPendingTransactions();
 
-      // 🟢 공동통장 중복 자동 정리: Firestore에 이미 등록된 거래는 대기 목록에서 제거
+      // 🟢 중복 자동 정리: Firestore에 이미 같은 금액+비슷한 시간(±10분)의 거래가 있으면 제거
+      // txHash가 아닌 금액+날짜 기반으로 체크 (같은 거래라도 알림 소스에 따라 merchant/issuer가 다를 수 있으므로)
       if (user?.householdId && data && data.length > 0) {
-        // [병렬 실행] 모든 항목의 중복 체크를 동시에 수행 (순차 대비 N배 빠름)
         const dedupResults = await Promise.all(
           data.map(async (item) => {
             if (!item.parsed.amount) return null;
-            const txHash = generateTransactionHash(
-              item.parsed.amount,
-              item.parsed.merchant,
-              item.parsed.dateTime,
-              item.parsed.cardIssuer,
-              item.receivedAt,
-            );
             try {
+              // 거래 시간 파싱 (parsed.dateTime 또는 receivedAt 사용)
+              let txDate: Date | null = null;
+              if (item.parsed.dateTime) {
+                // "09/14 19:03" 형태 → 현재 연도로 Date 생성
+                const m = item.parsed.dateTime.match(/(\d{2})\/(\d{2})\s+(\d{2}):(\d{2})/);
+                if (m) {
+                  const now = new Date();
+                  txDate = new Date(now.getFullYear(), parseInt(m[1], 10) - 1, parseInt(m[2], 10), parseInt(m[3], 10), parseInt(m[4], 10));
+                }
+              }
+              if (!txDate && item.receivedAt) {
+                txDate = new Date(item.receivedAt);
+              }
+              if (!txDate) return null;
+
+              // ±10분 범위로 Firestore 조회
+              const margin = 10 * 60 * 1000; // 10분
+              const startDate = new Date(txDate.getTime() - margin);
+              const endDate = new Date(txDate.getTime() + margin);
+
               const snap = await firestore()
                 .collection('households')
                 .doc(user.householdId!)
                 .collection('transactions')
-                .where('txHash', '==', txHash)
+                .where('amount', '==', item.parsed.amount)
+                .where('date', '>=', startDate)
+                .where('date', '<=', endDate)
                 .limit(1)
                 .get();
               return !snap.empty ? item.id : null;
             } catch (e) {
-              return null; // Firestore 에러 시 해당 항목은 그냥 유지
+              return null;
             }
           })
         );
@@ -112,10 +127,9 @@ const PendingTransactionsScreen: React.FC<{ navigation: any }> = ({ navigation }
         const toRemoveIds = dedupResults.filter((id): id is string => id !== null);
 
         if (toRemoveIds.length > 0) {
-          // 삭제도 병렬 처리
           await Promise.all(toRemoveIds.map(id => removePendingTransaction(id)));
           data = data.filter(d => !toRemoveIds.includes(d.id));
-          console.log(`[PairBudget] 공동 거래 자동 정리: ${toRemoveIds.length}건 제거`);
+          console.log(`[PairBudget] 중복 거래 자동 정리: ${toRemoveIds.length}건 제거`);
         }
       }
 
@@ -428,9 +442,23 @@ const PendingTransactionsScreen: React.FC<{ navigation: any }> = ({ navigation }
           : Promise.resolve(),
       ]).catch(e => console.warn('[PairBudget] 후처리 오류 (무시 가능):', e));
 
-      // UI 즉시 반영
+      // 🟢 같은 금액 + 다른 앱의 pending 자동 삭제 (같은 결제의 중복 알림 정리)
+      const relatedIds: string[] = [];
+      pendingTransactions.forEach(p => {
+        if (p.id === item.id) return; // 방금 등록한 건은 제외
+        if (p.parsed.amount !== amount) return; // 금액 다르면 패스
+        if (p.parsed.packageName === item.parsed.packageName) return; // 같은 앱이면 패스 (진짜 다른 결제일 수 있음)
+        relatedIds.push(p.id);
+      });
+      if (relatedIds.length > 0) {
+        Promise.all(relatedIds.map(id => removePendingTransaction(id)))
+          .catch(e => console.warn('[PairBudget] 중복 pending 정리 오류:', e));
+      }
+
+      // UI 즉시 반영 (등록한 건 + 관련 중복 건 모두 제거)
+      const allRemovedIds = new Set([item.id, ...relatedIds]);
       setPendingTransactions(prev => {
-        const next = prev.filter(t => t.id !== item.id);
+        const next = prev.filter(t => !allRemovedIds.has(t.id));
         if (next.length <= 3) {
           setTimeout(() => flatListRef.current?.scrollToOffset({ offset: 0, animated: true }), 100);
         }
@@ -450,7 +478,7 @@ const PendingTransactionsScreen: React.FC<{ navigation: any }> = ({ navigation }
       console.error('Approve transaction error:', err);
       showAlert({ title: '오류', message: err.message || '등록에 실패했습니다.', icon: 'error' });
     }
-  }, [selectedCategory, user, editedValues, coupleBanks, coupleOverride, householdCategories]);
+  }, [selectedCategory, user, editedValues, coupleBanks, coupleOverride, householdCategories, pendingTransactions]);
 
   const handleReject = useCallback(async (item: PendingTransaction) => {
     showAlert({
