@@ -78,8 +78,24 @@ export async function analyzeFixedCosts(
     return tx.isCouple || tx.createdBy === userId; // all
   });
 
-  // description별 월별 데이터 집계
+  // description 정규화: 유사한 가맹점명을 같은 그룹으로 합치기
+  const normalizeDescription = (desc: string): string => {
+    let normalized = desc;
+    // 괄호와 내용 제거: "쿠팡(와우멤" → "쿠팡"
+    normalized = normalized.replace(/[(\[（【].*/g, '');
+    // 법인명 제거: "쿠팡 주식회사" → "쿠팡"
+    normalized = normalized.replace(/(주식회사|㈜|\(주\)|유한회사|유한공사)/g, '');
+    // 언더스코어 뒤 제거: "배민클럽_우" → "배민클럽"
+    normalized = normalized.replace(/_.*$/, '');
+    // 특수문자, 공백 제거
+    normalized = normalized.replace(/[^가-힣a-zA-Z0-9]/g, '');
+    // 빈 문자열 방지
+    return normalized || desc.trim();
+  };
+
+  // description별 월별 데이터 집계 (정규화된 키 기준)
   const descMap: Record<string, {
+    displayName: string;    // 화면에 보여줄 원본 이름 (가장 최근 것)
     categoryName: string;
     categoryGroup: string;
     categoryIcon: string;
@@ -95,15 +111,21 @@ export async function analyzeFixedCosts(
     );
     if (monthIdx < 0) return;
 
-    if (!descMap[tx.description]) {
-      descMap[tx.description] = {
+    const key = normalizeDescription(tx.description);
+    if (!descMap[key]) {
+      descMap[key] = {
+        displayName: tx.description,
         categoryName: tx.categoryName,
         categoryGroup: tx.categoryGroup,
         categoryIcon: tx.categoryIcon,
         monthly: months.map(() => ({ amounts: [], count: 0 })),
       };
     }
-    const entry = descMap[tx.description];
+    const entry = descMap[key];
+    // 가장 최근 거래의 이름을 표시명으로 사용
+    if (monthIdx === 0) {
+      entry.displayName = tx.description;
+    }
     entry.monthly[monthIdx].amounts.push(tx.amount);
     entry.monthly[monthIdx].count++;
   });
@@ -137,7 +159,7 @@ export async function analyzeFixedCosts(
     );
 
     fixedCosts.push({
-      description: desc,
+      description: data.displayName,
       categoryName: data.categoryName,
       categoryGroup: data.categoryGroup,
       categoryIcon: data.categoryIcon,
