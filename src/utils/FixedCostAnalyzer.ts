@@ -62,6 +62,7 @@ export async function analyzeFixedCosts(
     return {
       amount: d.amount || 0,
       description: (d.description || '').trim(),
+      memo: (d.memo || '').trim(),
       categoryName: d.categoryName || '',
       categoryGroup: d.categoryGroup || '',
       categoryIcon: d.categoryIcon || '',
@@ -99,6 +100,7 @@ export async function analyzeFixedCosts(
     categoryName: string;
     categoryGroup: string;
     categoryIcon: string;
+    memos: string[];        // memo 텍스트 모음 (2차 매칭용)
     monthly: { amounts: number[]; count: number }[];
   }> = {};
 
@@ -118,6 +120,7 @@ export async function analyzeFixedCosts(
         categoryName: tx.categoryName,
         categoryGroup: tx.categoryGroup,
         categoryIcon: tx.categoryIcon,
+        memos: [],
         monthly: months.map(() => ({ amounts: [], count: 0 })),
       };
     }
@@ -126,9 +129,81 @@ export async function analyzeFixedCosts(
     if (monthIdx === 0) {
       entry.displayName = tx.description;
     }
+    if (tx.memo) {
+      entry.memos.push(tx.memo);
+    }
     entry.monthly[monthIdx].amounts.push(tx.amount);
     entry.monthly[monthIdx].count++;
   });
+
+  // 2차 매칭: 유사 항목 병합
+  // 조건: 같은 카테고리 + 금액 ±5% + (공통 키워드 3글자 이상 OR 키가 상대 memo에 포함)
+  const descKeys = Object.keys(descMap);
+  const mergedKeys = new Set<string>();
+
+  // memo 텍스트 정규화 (공백/특수문자 제거)
+  const normalizeMemo = (memo: string) => memo.replace(/[^가-힣a-zA-Z0-9]/g, '').toLowerCase();
+
+  for (let i = 0; i < descKeys.length; i++) {
+    if (mergedKeys.has(descKeys[i])) continue;
+    const a = descMap[descKeys[i]];
+
+    for (let j = i + 1; j < descKeys.length; j++) {
+      if (mergedKeys.has(descKeys[j])) continue;
+      const b = descMap[descKeys[j]];
+
+      // 같은 카테고리 그룹?
+      if (a.categoryGroup !== b.categoryGroup) continue;
+
+      // 금액 비슷한가? (±5%) — 먼저 체크 (빠른 필터)
+      const aAmts = a.monthly.flatMap(m => m.amounts);
+      const bAmts = b.monthly.flatMap(m => m.amounts);
+      if (aAmts.length === 0 || bAmts.length === 0) continue;
+      const aAvg = aAmts.reduce((s, v) => s + v, 0) / aAmts.length;
+      const bAvg = bAmts.reduce((s, v) => s + v, 0) / bAmts.length;
+      const maxAvg = Math.max(aAvg, bAvg);
+      if (maxAvg === 0) continue;
+      const ratio = Math.min(aAvg, bAvg) / maxAvg;
+      if (ratio < 0.95) continue;
+
+      // 유사도 판단: 키 공통 OR 키↔memo 포함
+      let isSimilar = false;
+
+      // 방법 1: 정규화 키 사이 공통 키워드 3글자 이상
+      const shorter = descKeys[i].length <= descKeys[j].length ? descKeys[i] : descKeys[j];
+      const longer = descKeys[i].length > descKeys[j].length ? descKeys[i] : descKeys[j];
+      for (let len = 3; len <= shorter.length && !isSimilar; len++) {
+        for (let s = 0; s <= shorter.length - len; s++) {
+          if (longer.includes(shorter.substring(s, s + len))) {
+            isSimilar = true;
+            break;
+          }
+        }
+      }
+
+      // 방법 2: 한쪽 키가 상대 memo에 포함 (3글자 이상 키만)
+      if (!isSimilar && descKeys[i].length >= 3) {
+        const keyI = descKeys[i].toLowerCase();
+        isSimilar = b.memos.some(m => normalizeMemo(m).includes(keyI));
+      }
+      if (!isSimilar && descKeys[j].length >= 3) {
+        const keyJ = descKeys[j].toLowerCase();
+        isSimilar = a.memos.some(m => normalizeMemo(m).includes(keyJ));
+      }
+
+      if (!isSimilar) continue;
+
+      // 합치기: b → a에 병합
+      for (let m = 0; m < a.monthly.length; m++) {
+        a.monthly[m].amounts.push(...b.monthly[m].amounts);
+        a.monthly[m].count += b.monthly[m].count;
+      }
+      a.memos.push(...b.memos);
+      mergedKeys.add(descKeys[j]);
+    }
+  }
+  // 병합된 항목 제거
+  mergedKeys.forEach(key => delete descMap[key]);
 
   // 고정비 판단
   const fixedCosts: FixedCostItem[] = [];
