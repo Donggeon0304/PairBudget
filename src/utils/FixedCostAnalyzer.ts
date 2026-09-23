@@ -110,8 +110,13 @@ export async function analyzeFixedCosts(
 
   // 고정비 판단
   const fixedCosts: FixedCostItem[] = [];
+  // 고정비 대상에서 제외할 카테고리 그룹 (식당, 쇼핑은 반복되어도 고정비가 아님)
+  const EXCLUDE_GROUPS = ['식비', '쇼핑'];
 
   Object.entries(descMap).forEach(([desc, data]) => {
+    // 제외 카테고리 그룹
+    if (EXCLUDE_GROUPS.includes(data.categoryGroup)) return;
+
     // 3개월 연속 발생?
     const allMonthsPresent = data.monthly.every(m => m.count > 0);
     if (!allMonthsPresent) return;

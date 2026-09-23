@@ -236,16 +236,16 @@ const DashboardScreen: React.FC = () => {
     return () => unsub();
   }, [user?.householdId, currentMonth, fiscalCycle.enabled, fiscalCycle.startDay]);
 
-  // 🟢 고정비 분석 (최근 3개월 데이터 기반)
+  // 🟢 고정비 분석 (항상 개인 거래만 — 공동 거래는 고정비 대상에서 제외)
   useEffect(() => {
     if (!user?.householdId || !user?.uid) {
       setFixedCosts([]);
       return;
     }
-    analyzeFixedCosts(user.householdId, currentMonth, user.uid, viewMode, fiscalCycle)
+    analyzeFixedCosts(user.householdId, currentMonth, user.uid, 'personal', fiscalCycle)
       .then(setFixedCosts)
       .catch(() => setFixedCosts([]));
-  }, [user?.householdId, user?.uid, currentMonth, viewMode, fiscalCycle.enabled, fiscalCycle.startDay]);
+  }, [user?.householdId, user?.uid, currentMonth, fiscalCycle.enabled, fiscalCycle.startDay]);
 
   const monthLabel = fiscalCycle.getMonthDisplayLabel(currentMonth);
 
@@ -403,8 +403,8 @@ const DashboardScreen: React.FC = () => {
           <Text style={styles.filterHint}>개인 지출만 표시됩니다</Text>
         )}
 
-        {/* ─── 고정비 카드 ─── */}
-        {fixedCosts.length > 0 && (
+        {/* ─── 고정비 카드 (공동 모드에서는 숨김) ─── */}
+        {viewMode !== 'couple' && fixedCosts.length > 0 && (
           <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
             <GlassCard style={styles.chartCard}>
               <TouchableOpacity
@@ -414,7 +414,7 @@ const DashboardScreen: React.FC = () => {
               >
                 <View style={styles.fixedCostTitleRow}>
                   <Icon name="repeat-outline" size={18} color={Colors.Primary} />
-                  <Text style={styles.sectionTitle}>고정비</Text>
+                  <Text style={[styles.sectionTitle, {marginBottom: 0}]}>고정비</Text>
                   <Text style={styles.fixedCostTotal}>
                     {formatCurrency(fixedCosts.reduce((s, c) => s + c.amount, 0))}
                   </Text>
