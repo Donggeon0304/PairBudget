@@ -34,7 +34,7 @@ import { useFiscalCycle } from '../../contexts/FiscalCycleContext';
 import { getBankInfo } from '../../utils/BankInfo';
 import { formatCategoryLabel } from '../../utils/formatCategory';
 import type { Transaction } from '../../types';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -151,6 +151,7 @@ const StatsScreen: React.FC = () => {
   const { user } = useAuth();
   const { household, categories } = useHousehold();
   const navigation = useNavigation<any>();
+  const route = useRoute<any>();
 
   const { currentMonth, setCurrentMonth, monthPickerVisible, setMonthPickerVisible, pickerYear, setPickerYear } = useMonth();
   const fiscalCycle = useFiscalCycle();
@@ -180,6 +181,16 @@ const StatsScreen: React.FC = () => {
       useNativeDriver: true,
     }).start();
   }, [fadeAnim]);
+
+  // 대시보드에서 카테고리 터치로 넘어온 경우 세부 모달 자동 오픈
+  useEffect(() => {
+    const selectedGroup = route?.params?.selectedGroup;
+    if (selectedGroup && !isLoading) {
+      setSelectedGroupForDetail(selectedGroup);
+      // params 소비 후 초기화
+      navigation.setParams({ selectedGroup: undefined });
+    }
+  }, [route?.params?.selectedGroup, isLoading]);
 
   // 수정 화면에서 돌아올 때 세부 모달 복원
   useEffect(() => {

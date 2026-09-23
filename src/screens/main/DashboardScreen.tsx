@@ -39,6 +39,7 @@ import { useMonth } from '../../contexts/MonthContext';
 import { useFiscalCycle } from '../../contexts/FiscalCycleContext';
 import FiscalCycleSettingSheet from '../../components/FiscalCycleSettingSheet';
 import { checkForUpdate, CURRENT_VERSION_NAME } from '../../services/UpdateService';
+import { analyzeFixedCosts, FixedCostItem } from '../../utils/FixedCostAnalyzer';
 
 const GROUP_ICONS: Record<string, string> = {
   '식비': 'restaurant-outline',
@@ -112,6 +113,8 @@ const DashboardScreen: React.FC = () => {
   const [viewMode, setViewMode] = useState<'all' | 'personal' | 'couple'>('personal');
   const [pendingCount, setPendingCount] = useState(0);
   const [fiscalSheetVisible, setFiscalSheetVisible] = useState(false);
+  const [fixedCosts, setFixedCosts] = useState<FixedCostItem[]>([]);
+  const [fixedCostExpanded, setFixedCostExpanded] = useState(false);
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(30)).current;
 
@@ -232,6 +235,17 @@ const DashboardScreen: React.FC = () => {
       }, err => console.error('TX listener:', err));
     return () => unsub();
   }, [user?.householdId, currentMonth, fiscalCycle.enabled, fiscalCycle.startDay]);
+
+  // 🟢 고정비 분석 (최근 3개월 데이터 기반)
+  useEffect(() => {
+    if (!user?.householdId || !user?.uid) {
+      setFixedCosts([]);
+      return;
+    }
+    analyzeFixedCosts(user.householdId, currentMonth, user.uid, viewMode, fiscalCycle)
+      .then(setFixedCosts)
+      .catch(() => setFixedCosts([]));
+  }, [user?.householdId, user?.uid, currentMonth, viewMode, fiscalCycle.enabled, fiscalCycle.startDay]);
 
   const monthLabel = fiscalCycle.getMonthDisplayLabel(currentMonth);
 
@@ -389,6 +403,53 @@ const DashboardScreen: React.FC = () => {
           <Text style={styles.filterHint}>개인 지출만 표시됩니다</Text>
         )}
 
+        {/* ─── 고정비 카드 ─── */}
+        {fixedCosts.length > 0 && (
+          <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
+            <GlassCard style={styles.chartCard}>
+              <TouchableOpacity
+                style={styles.fixedCostHeader}
+                onPress={() => setFixedCostExpanded(!fixedCostExpanded)}
+                activeOpacity={0.7}
+              >
+                <View style={styles.fixedCostTitleRow}>
+                  <Icon name="repeat-outline" size={18} color={Colors.Primary} />
+                  <Text style={styles.sectionTitle}>고정비</Text>
+                  <Text style={styles.fixedCostTotal}>
+                    {formatCurrency(fixedCosts.reduce((s, c) => s + c.amount, 0))}
+                  </Text>
+                </View>
+                <Icon
+                  name={fixedCostExpanded ? 'chevron-up' : 'chevron-down'}
+                  size={18}
+                  color={Colors.TextMuted}
+                />
+              </TouchableOpacity>
+              {(fixedCostExpanded ? fixedCosts : fixedCosts.slice(0, 3)).map((item, i) => (
+                <View key={`fc-${i}`} style={styles.fixedCostRow}>
+                  <View style={styles.categoryLeft}>
+                    <CategoryIcon icon={item.categoryIcon} categoryName={item.categoryName} size={16} color={Colors.TextSecondary} style={styles.categoryIcon} />
+                    <Text style={styles.categoryName} numberOfLines={1}>{item.description}</Text>
+                  </View>
+                  <View style={styles.fixedCostRight}>
+                    <Text style={styles.categoryAmount}>
+                      {item.isFixed ? '' : '~'}{formatCurrency(item.amount)}
+                    </Text>
+                    <Text style={[styles.fixedCostBadge, { color: item.isFixed ? Colors.Primary : Colors.TextMuted }]}>
+                      {item.isFixed ? '고정' : '변동'}
+                    </Text>
+                  </View>
+                </View>
+              ))}
+              {!fixedCostExpanded && fixedCosts.length > 3 && (
+                <TouchableOpacity onPress={() => setFixedCostExpanded(true)} style={styles.fixedCostMore}>
+                  <Text style={styles.fixedCostMoreText}>+{fixedCosts.length - 3}개 더보기</Text>
+                </TouchableOpacity>
+              )}
+            </GlassCard>
+          </Animated.View>
+        )}
+
         {sortedCats.length > 0 ? (
           <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
             <GlassCard style={styles.chartCard}>
@@ -406,7 +467,12 @@ const DashboardScreen: React.FC = () => {
                 </View>
               </View>
               {sortedCats.map((cat, i) => (
-                <View key={`row-${cat.name}-${i}`} style={styles.categoryRow}>
+                <TouchableOpacity
+                  key={`row-${cat.name}-${i}`}
+                  style={styles.categoryRow}
+                  activeOpacity={0.6}
+                  onPress={() => navigation.navigate('Stats', { selectedGroup: cat.name })}
+                >
                   <View style={styles.categoryLeft}>
                     <View style={[styles.categoryDot, { backgroundColor: cat.color }]} />
                     <CategoryIcon icon={cat.icon} categoryName={cat.name} size={16} color={cat.color} style={styles.categoryIcon} />
@@ -415,8 +481,9 @@ const DashboardScreen: React.FC = () => {
                   <View style={styles.categoryRight}>
                     <Text style={styles.categoryAmount}>{formatCurrency(cat.total)}</Text>
                     <Text style={styles.categoryPct}>{((cat.total / catTotal) * 100).toFixed(0)}%</Text>
+                    <Icon name="chevron-forward" size={14} color={Colors.TextMuted} style={{marginLeft: 4}} />
                   </View>
-                </View>
+                </TouchableOpacity>
               ))}
             </GlassCard>
           </Animated.View>
@@ -663,6 +730,52 @@ const styles = StyleSheet.create({
   },
   fabIcon: {
     transform: [{ translateX: 2 }, { translateY: 2 }],
+  },
+  fixedCostHeader: {
+    flexDirection: 'row' as const,
+    justifyContent: 'space-between' as const,
+    alignItems: 'center' as const,
+    marginBottom: 8,
+  },
+  fixedCostTitleRow: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 6,
+  },
+  fixedCostTotal: {
+    fontSize: 14,
+    fontWeight: '700' as const,
+    color: Colors.Expense,
+    marginLeft: 8,
+  },
+  fixedCostRow: {
+    flexDirection: 'row' as const,
+    justifyContent: 'space-between' as const,
+    alignItems: 'center' as const,
+    paddingVertical: 6,
+    borderTopWidth: 0.5,
+    borderTopColor: Colors.Divider,
+  },
+  fixedCostRight: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 8,
+  },
+  fixedCostBadge: {
+    fontSize: 10,
+    fontWeight: '600' as const,
+    minWidth: 28,
+    textAlign: 'center' as const,
+  },
+  fixedCostMore: {
+    alignItems: 'center' as const,
+    paddingVertical: 8,
+    marginTop: 4,
+  },
+  fixedCostMoreText: {
+    fontSize: 12,
+    color: Colors.Primary,
+    fontWeight: '600' as const,
   },
 });
 
