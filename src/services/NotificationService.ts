@@ -353,6 +353,12 @@ async function headlessNotificationHandler(rawNotification: any): Promise<void> 
     if (p.parsed.amount !== parsed.amount) continue;
     if (p.parsed.incomeOrExpense !== parsed.incomeOrExpense) continue;
 
+    // 🟢 같은 앱(packageName)에서 온 알림이면 → 별개 거래 (중복 아님)
+    // quickHash(L259)가 완전 동일한 알림을 이미 잡으므로, 여기까지 온 건 rawText가 다른 = 다른 거래
+    if (packageName && p.parsed.packageName && packageName === p.parsed.packageName) {
+      continue;
+    }
+
     // 1. [피드백 반영] 같은 은행(카드사) + 같은 금액 + 같은 시간(15분 내)이면 가맹점이 다르게 파싱돼도 무조건 중복 1건으로!
     const issuer1 = (parsed.cardIssuer || '').toLowerCase().replace(/\s+/g, '');
     const issuer2 = (p.parsed.cardIssuer || '').toLowerCase().replace(/\s+/g, '');
