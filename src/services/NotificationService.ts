@@ -256,12 +256,14 @@ async function headlessNotificationHandler(rawNotification: any): Promise<void> 
   if (!rawText.trim()) return;
 
   // 🔒 인메모리 즉시 중복 체크 (AsyncStorage 경쟁 조건 방지)
+  // 안드로이드 NotificationListener가 같은 알림을 밀리초 단위로 중복 콜백하는 것만 방지
+  // 2초로 짧게 설정: 같은 앱에서 같은 금액 거래가 빠르게 연속될 수 있음 (네이버페이 충전 등)
   const notifHash = quickHash(packageName + ':' + rawText);
   if (recentNotificationHashes.has(notifHash)) {
-    return; // 이미 이 프로세스에서 처리한 알림
+    return; // 2초 내 완전 동일 알림 = 시스템 중복 콜백
   }
   recentNotificationHashes.add(notifHash);
-  setTimeout(() => recentNotificationHashes.delete(notifHash), HASH_EXPIRY_MS);
+  setTimeout(() => recentNotificationHashes.delete(notifHash), 2000); // 2초
 
   const isKnownApp = isBankNotification(packageName);
   const looksLikeTransaction = isBankSms(rawText);
