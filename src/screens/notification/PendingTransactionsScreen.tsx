@@ -24,7 +24,7 @@ import CategorySelectModal from '../../components/CategorySelectModal';
 import { useAlert } from '../../components/CustomAlert';
 import { formatCurrency } from '../../utils/formatCurrency';
 import { useAuth } from '../../contexts/AuthContext';
-import { getPendingTransactions, removePendingTransaction, getCoupleAccountBanks, learnCategoryMapping, addRejectedHash } from '../../services/NotificationService';
+import { getPendingTransactions, removePendingTransaction, getCoupleAccountBanks, learnCategoryMapping, addRejectedHash, addApprovedTransaction } from '../../services/NotificationService';
 import { getLearnedMapping, initCategoryMapper, autoMapCategory } from '../../services/CategoryAutoMapper';
 import { generateTransactionHash, getBrandName } from '../../services/BankNotificationParser';
 import { useHousehold } from '../../contexts/HouseholdContext';
@@ -274,10 +274,6 @@ const PendingTransactionsScreen: React.FC<{ navigation: any }> = ({ navigation }
   /** 기본 카테고리 결정 — Firestore 실제 내역 우선, 학습/브랜드 fallback */
   const getDefaultCategory = (item: PendingTransaction): Category | undefined => {
     const txType = getTransactionType(item);
-    if (txType === 'income') {
-      const incomeCat = householdCategories.find(c => c.type === 'income');
-      return incomeCat;
-    }
 
     const merchant = item.parsed.merchant;
     if (merchant) {
@@ -285,7 +281,7 @@ const PendingTransactionsScreen: React.FC<{ navigation: any }> = ({ navigation }
       const exactMatch = merchantCategoryMap[merchant];
       if (exactMatch) {
         const cat = householdCategories.find(c =>
-          c.id === exactMatch.categoryId || c.name === exactMatch.categoryName
+          (c.id === exactMatch.categoryId || c.name === exactMatch.categoryName) && c.type === txType
         );
         if (cat) return cat;
       }
@@ -297,25 +293,30 @@ const PendingTransactionsScreen: React.FC<{ navigation: any }> = ({ navigation }
           const descNorm = desc.replace(/\s+/g, '');
           if (descNorm.length >= 3 && (descNorm.includes(merchantNorm) || merchantNorm.includes(descNorm))) {
             const cat = householdCategories.find(c =>
-              c.id === catInfo.categoryId || c.name === catInfo.categoryName
+              (c.id === catInfo.categoryId || c.name === catInfo.categoryName) && c.type === txType
             );
             if (cat) return cat;
           }
         }
       }
 
-      // 3차: AsyncStorage 학습 매핑 (fallback)
-      const learned = getLearnedMapping(merchant);
+      // 3차: AsyncStorage 학습 매핑 (fallback) — type 지정해서 수입/지출 구분
+      const learned = getLearnedMapping(merchant, txType);
       if (learned) {
         const learnedCat = householdCategories.find(c =>
-          c.id === learned.categoryId || c.name === learned.categoryName
+          (c.id === learned.categoryId || c.name === learned.categoryName) && c.type === txType
         );
         if (learnedCat) return learnedCat;
       }
     }
 
-    // 4차: 백그라운드에서 설정한 suggestedCategory 또는 첨 번째 지출 카테고리
-    return item.suggestedCategory || householdCategories.find(c => c.type === 'expense');
+    // 4차: 백그라운드에서 설정한 suggestedCategory
+    if (item.suggestedCategory && item.suggestedCategory.type === txType) {
+      return item.suggestedCategory;
+    }
+
+    // 5차: 해당 type의 첫 번째 카테고리
+    return householdCategories.find(c => c.type === txType);
   };
 
   /** 제목 정리 - 핵심만 추출 */
@@ -438,8 +439,10 @@ const PendingTransactionsScreen: React.FC<{ navigation: any }> = ({ navigation }
       const postProcessing = Promise.all([
         removePendingTransaction(item.id),
         merchant && category
-          ? learnCategoryMapping(merchant, category.id, category.name, (category as any).group)
+          ? learnCategoryMapping(merchant, category.id, category.name, (category as any).group, txType)
           : Promise.resolve(),
+        // 등록된 거래 기록 (다른 앱에서 같은 거래 알림 오면 무시)
+        addApprovedTransaction(amount, item.parsed.cardIssuer || '', item.parsed.dateTime || ''),
       ]).catch(e => console.warn('[PairBudget] 후처리 오류 (무시 가능):', e));
 
       // 🟢 같은 금액 + 다른 앱의 pending 자동 삭제 (같은 결제의 중복 알림 정리)
@@ -717,9 +720,11 @@ const PendingTransactionsScreen: React.FC<{ navigation: any }> = ({ navigation }
                 await removePendingTransaction(item.id);
                 // 학습: merchant → category 매핑 저장
                 const merchant = item.parsed.merchant;
+                const bulkTxType = getTransactionType(item);
                 if (merchant && category) {
-                  await learnCategoryMapping(merchant, category.id, category.name, (category as any).group);
+                  await learnCategoryMapping(merchant, category.id, category.name, (category as any).group, bulkTxType);
                 }
+                await addApprovedTransaction(item.parsed.amount || 0, item.parsed.cardIssuer || '', item.parsed.dateTime || '');
                 successCount++;
               } catch (err: any) {
                 console.error(`Failed to register item ${item.id}:`, err);

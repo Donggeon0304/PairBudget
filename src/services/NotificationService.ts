@@ -289,7 +289,8 @@ async function headlessNotificationHandler(rawNotification: any): Promise<void> 
   console.log('[PairBudget] 거래 감지:', parsed.incomeOrExpense, parsed.amount, 'merchant:', parsed.merchant?.substring(0, 30));
 
   // Auto-suggest a category (학습된 매핑 우선)
-  const learnedMapping = parsed.merchant ? getLearnedMapping(parsed.merchant) : null;
+  const txType = parsed.incomeOrExpense === 'income' ? 'income' : 'expense';
+  const learnedMapping = parsed.merchant ? getLearnedMapping(parsed.merchant, txType) : null;
   const suggestedCategoryName = parsed.merchant
     ? autoMapCategory(parsed.merchant)
     : null;
@@ -317,6 +318,12 @@ async function headlessNotificationHandler(rawNotification: any): Promise<void> 
   // 공동 통장 여부 자동 판별
   const coupleBanks = await getCoupleAccountBanks();
   const isCouple = coupleBanks.includes(packageName);
+
+  // 이미 승인(등록)된 거래인지 확인 (등록 후 다른 앱에서 같은 거래 알림이 들어오는 경우 방지)
+  if (parsed.amount && await isAlreadyApproved(parsed.amount, parsed.cardIssuer || '', parsed.dateTime || '')) {
+    console.log('[PairBudget] ⏭️ 이미 등록된 거래 감지 → 스킵:', parsed.amount, parsed.cardIssuer, parsed.dateTime);
+    return;
+  }
 
   // 아카이브에 원본 알림 저장 (뮤텍스 획득 전 독립적으로 수행)
   await saveToArchive(parsed, rawText, packageName);
@@ -361,14 +368,28 @@ async function headlessNotificationHandler(rawNotification: any): Promise<void> 
       // 거래 시간(알림 원문에서 파싱된 시간) 비교
       const t1 = (parsed.dateTime || '').trim();
       const t2 = (p.parsed.dateTime || '').trim();
+
+      // "MM/DD HH:MM" → 총 분 수로 변환 (크로스앱 ±10분 비교용)
+      const toMin = (dt: string): number | null => {
+        const m = dt.match(/(\d{2})\/(\d{2})\s+(\d{2}):(\d{2})/);
+        if (!m) return null;
+        return parseInt(m[1], 10) * 43200 + parseInt(m[2], 10) * 1440 + parseInt(m[3], 10) * 60 + parseInt(m[4], 10);
+      };
       
-      // 둘 다 dateTime이 있는 경우 → 직접 비교
+      // 둘 다 dateTime이 있는 경우
       if (t1 && t2) {
         if (t1 === t2) {
           duplicateIndex = i;
           break;
         }
-        continue; // 시간이 다르면 다른 거래
+        // 정확히 같지 않더라도 ±10분 이내면 중복 (SMS vs 앱 알림 시간차)
+        const m1 = toMin(t1);
+        const m2 = toMin(t2);
+        if (m1 !== null && m2 !== null && Math.abs(m1 - m2) <= 10) {
+          duplicateIndex = i;
+          break;
+        }
+        continue; // 10분 이상 차이나면 확실히 다른 거래
       }
       
       // 한쪽만 dateTime이 있는 경우 → receivedAt을 MM/DD HH:MM 형식으로 변환해서 비교
@@ -380,20 +401,12 @@ async function headlessNotificationHandler(rawNotification: any): Promise<void> 
         const dd = String(fallbackDate.getDate()).padStart(2, '0');
         const hh = String(fallbackDate.getHours()).padStart(2, '0');
         const min = String(fallbackDate.getMinutes()).padStart(2, '0');
-        const receivedTimeStr = `${mm}/${dd} ${hh}:${min}`;
+        const fallbackTimeStr = `${mm}/${dd} ${hh}:${min}`;
         
-        if (knownTime === receivedTimeStr) {
-          duplicateIndex = i;
-          break;
-        }
-        // 1분 차이도 허용 (알림 지연 감안)
-        const fallbackDate2 = new Date(fallbackDate.getTime() - 60000);
-        const mm2 = String(fallbackDate2.getMonth() + 1).padStart(2, '0');
-        const dd2 = String(fallbackDate2.getDate()).padStart(2, '0');
-        const hh2 = String(fallbackDate2.getHours()).padStart(2, '0');
-        const min2 = String(fallbackDate2.getMinutes()).padStart(2, '0');
-        const receivedTimeStr2 = `${mm2}/${dd2} ${hh2}:${min2}`;
-        if (knownTime === receivedTimeStr2) {
+        // ±10분 이내면 중복
+        const knownMin = toMin(knownTime);
+        const fallbackMin = toMin(fallbackTimeStr);
+        if (knownMin !== null && fallbackMin !== null && Math.abs(knownMin - fallbackMin) <= 10) {
           duplicateIndex = i;
           break;
         }
@@ -700,5 +713,65 @@ export async function getRejectedHashes(): Promise<string[]> {
     return json ? JSON.parse(json) : [];
   } catch {
     return [];
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 승인된 거래 해시 관리 (등록 후 다른 앱 알림 중복 방지)
+// ---------------------------------------------------------------------------
+const APPROVED_HASHES_KEY = '@PairBudget:approvedTxHashes';
+
+/**
+ * 승인된 거래의 금액+은행+시간 정보를 저장 (등록 후 같은 거래 재감지 방지)
+ */
+export async function addApprovedTransaction(amount: number, issuer: string, dateTime: string): Promise<void> {
+  try {
+    const json = await AsyncStorage.getItem(APPROVED_HASHES_KEY);
+    const list: Array<{ amount: number; issuer: string; dateTime: string; approvedAt: number }> = json ? JSON.parse(json) : [];
+    list.push({ amount, issuer: (issuer || '').toLowerCase().replace(/\s+/g, ''), dateTime: (dateTime || '').trim(), approvedAt: Date.now() });
+    // 최대 200개, 7일 이내만 유지
+    const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    const trimmed = list.filter(l => l.approvedAt > weekAgo).slice(-200);
+    await AsyncStorage.setItem(APPROVED_HASHES_KEY, JSON.stringify(trimmed));
+  } catch (e) {
+    console.error('[NotificationService] addApprovedTransaction error:', e);
+  }
+}
+
+/**
+ * 승인된 거래 목록에서 같은 거래가 있는지 확인
+ */
+export async function isAlreadyApproved(amount: number, issuer: string, dateTime: string): Promise<boolean> {
+  try {
+    const json = await AsyncStorage.getItem(APPROVED_HASHES_KEY);
+    if (!json) return false;
+    const list: Array<{ amount: number; issuer: string; dateTime: string; approvedAt: number }> = JSON.parse(json);
+    const normalizedIssuer = (issuer || '').toLowerCase().replace(/\s+/g, '');
+    const normalizedDateTime = (dateTime || '').trim();
+
+    // "MM/DD HH:MM" → 총 분 수로 변환
+    const toMin = (dt: string): number | null => {
+      const m = dt.match(/(\d{2})\/(\d{2})\s+(\d{2}):(\d{2})/);
+      if (!m) return null;
+      return parseInt(m[1], 10) * 43200 + parseInt(m[2], 10) * 1440 + parseInt(m[3], 10) * 60 + parseInt(m[4], 10);
+    };
+
+    return list.some(approved => {
+      if (approved.amount !== amount) return false;
+      // 같은 은행?
+      if (normalizedIssuer && approved.issuer && !normalizedIssuer.includes(approved.issuer) && !approved.issuer.includes(normalizedIssuer)) return false;
+      // 시간 ±10분?
+      if (normalizedDateTime && approved.dateTime) {
+        const m1 = toMin(normalizedDateTime);
+        const m2 = toMin(approved.dateTime);
+        if (m1 !== null && m2 !== null && Math.abs(m1 - m2) <= 10) return true;
+        if (normalizedDateTime === approved.dateTime) return true;
+        return false;
+      }
+      // 시간 정보 없으면 7일 이내 같은 금액+은행으로 판단하지 않음
+      return false;
+    });
+  } catch {
+    return false;
   }
 }

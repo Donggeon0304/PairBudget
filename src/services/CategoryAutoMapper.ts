@@ -100,6 +100,7 @@ interface LearnedMapping {
   categoryId: string;
   categoryName: string;
   group?: string;
+  type?: 'income' | 'expense'; // 수입/지출 구분
 }
 
 let learnedMappings: Map<string, LearnedMapping> = new Map();
@@ -230,7 +231,9 @@ export function autoMapCategory(merchant: string): string | null {
   //      지점명 제거 후 비교 + 부분 문자열 포함 비교
   //      "구글플레이"를 학습했으면 "구글페이먼트코리아 유한회사"도 매칭 (포함 관계)
   const stripped = stripBranchName(normalized);
-  for (const [key, mapping] of learnedMappings) {
+  for (const [rawKey, mapping] of learnedMappings) {
+    // __income/__expense 접미사 제거
+    const key = rawKey.replace(/__(?:income|expense)$/, '');
     // 지점명 제거 후 일치
     if (stripped !== normalized && stripped.length >= 2) {
       const keyStripped = stripBranchName(key);
@@ -283,18 +286,33 @@ export function getLearnedCategoryId(merchant: string): string | null {
 
 /**
  * 학습된 매핑 전체 가져오기 (group 포함) — 퍼지 매칭 지원
+ * @param txType 지정 시, 해당 type의 매핑만 반환 (수입 merchant에 지출 카테고리 매핑 방지)
  */
-export function getLearnedMapping(merchant: string): LearnedMapping | null {
+export function getLearnedMapping(merchant: string, txType?: 'income' | 'expense'): LearnedMapping | null {
   if (!merchant) return null;
   const normalized = merchant.trim();
 
+  // type 일치 확인 (기존 데이터에 type이 없으면 통과 — 하위 호환)
+  const typeMatches = (mapping: LearnedMapping) =>
+    !txType || !mapping.type || mapping.type === txType;
+
+  // type별 키 우선 조회 (__income / __expense)
+  if (txType) {
+    const typedKey = `${normalized}__${txType}`;
+    const typedExact = learnedMappings.get(typedKey);
+    if (typedExact) return typedExact;
+  }
+
   // 정확 일치
   const exact = learnedMappings.get(normalized);
-  if (exact) return exact;
+  if (exact && typeMatches(exact)) return exact;
 
   // 퍼지 매칭 (지점명 제거 + 부분 문자열 포함)
   const stripped = stripBranchName(normalized);
-  for (const [key, mapping] of learnedMappings) {
+  for (const [rawKey, mapping] of learnedMappings) {
+    if (!typeMatches(mapping)) continue;
+    // __income/__expense 접미사 제거해서 순수 merchant 키 추출
+    const key = rawKey.replace(/__(?:income|expense)$/, '');
     if (stripped !== normalized && stripped.length >= 2) {
       if (stripBranchName(key) === stripped) return mapping;
     }
@@ -313,18 +331,26 @@ export function getLearnedMapping(merchant: string): LearnedMapping | null {
  * @param categoryId    사용자가 선택한 카테고리의 Firestore ID
  * @param categoryName  카테고리 이름 (예: "외식")
  * @param group         대메뉴 그룹명 (예: "식비")
+ * @param txType        수입/지출 구분
  */
 export async function learnCategoryMapping(
   merchant: string,
   categoryId: string,
   categoryName: string,
   group?: string,
+  txType?: 'income' | 'expense',
 ): Promise<void> {
   if (!merchant || !categoryId) return;
   const normalized = merchant.trim();
   if (normalized.length < 2) return; // 너무 짧은 건 학습 안 함
 
-  learnedMappings.set(normalized, { categoryId, categoryName, group });
+  // type별로 다른 키 사용: 같은 merchant라도 입금/출금에 따라 다른 카테고리
+  const key = txType ? `${normalized}__${txType}` : normalized;
+  learnedMappings.set(key, { categoryId, categoryName, group, type: txType });
+  // 기존 type 없는 키도 제거 (이전 데이터 정리)
+  if (txType && learnedMappings.has(normalized)) {
+    learnedMappings.delete(normalized);
+  }
   await saveLearnedMappings();
 }
 
