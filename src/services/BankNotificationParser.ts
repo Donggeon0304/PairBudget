@@ -60,6 +60,8 @@ export const BANK_PACKAGES: string[] = [
   'com.nhqv.newsmartstock',                         // NH투자증권
   'com.kbsec.mts',                                  // KB증권
   'com.shinhaninvest.neosmartw',                    // 신한투자증권
+  // ─── 저축은행 ───────────────────────────────────────────────────────────
+  'com.cabsoft.oksavingbank',                        // OK저축은행
 ];
 
 export const KAKAO_FINANCE_CHANNELS: string[] = [
@@ -343,7 +345,19 @@ function parseBalance(text: string): number | null {
 function parseMerchantGeneric(text: string): string | null {
   let w = text;
 
-  // 0. 자동출금/자동이체(상대방) 패턴 선 추출
+  // 0-a. 이체 알림: "계좌번호 이름 계좌로" 패턴에서 수신인 추출
+  //      "NH농협은행 3510977999823 정찬준 계좌로 100,000원이 정상 이체되었습니다."
+  //      → "정찬준"
+  //      계좌번호(6자리+) 뒤에 이름이 오는 구조만 잡아서 "은행명 계좌로" 오매칭 방지
+  const transferMatch = w.match(/\d{6,}\s+(\S+)\s+계좌로/);
+  if (transferMatch) {
+    const recipient = transferMatch[1].trim();
+    if (recipient.length >= 2 && !/^\d+$/.test(recipient)) {
+      return recipient;
+    }
+  }
+
+  // 0-b. 자동출금/자동이체(상대방) 패턴 선 추출
   //    "자동출금46,200원(KT8687465206)" → "KT8687465206"
   const autoPayMatch = w.match(/(?:자동출금|자동이체|자동납부)[^(]*\(([^)]+)\)/);
   if (autoPayMatch) {
@@ -397,6 +411,9 @@ function parseMerchantGeneric(text: string): string | null {
     '자동출금', '자동납부',
     '인터넷뱅킹', '모바일뱅킹', '폰뱅킹', '텔레뱅킹',
     'KB', 'NH',
+    // 이체 관련 노이즈
+    '즉시이체', '계좌로', '계좌이체', '정상', '이체되었습니다',
+    '즉시이체완료',
   ]);
 
   // 3. 각 파트에서 "첫 번째 공백 전까지"만 추출 (가맹점명은 공백 없이 연속)
