@@ -3,7 +3,7 @@
  * React Native + Firebase + Android Notification Listener
  */
 
-import React from 'react';
+import React, {useEffect} from 'react';
 import {StatusBar} from 'react-native';
 import {SafeAreaProvider} from 'react-native-safe-area-context';
 import {GestureHandlerRootView} from 'react-native-gesture-handler';
@@ -13,8 +13,13 @@ import {HouseholdProvider} from './src/contexts/HouseholdContext';
 import {CustomAlertProvider} from './src/components/CustomAlert';
 import AppNavigator from './src/navigation/AppNavigator';
 import {Colors} from './src/theme/colors';
+import {migrateToEncryptedStorage} from './src/services/SecureStorage';
 
 function App(): React.JSX.Element {
+  useEffect(() => {
+    // 앱 시작 시 평문 데이터를 암호화 저장소로 마이그레이션
+    migrateToEncryptedStorage();
+  }, []);
   return (
     <GestureHandlerRootView style={{flex: 1}}>
       <SafeAreaProvider>

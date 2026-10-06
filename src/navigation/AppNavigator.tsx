@@ -12,7 +12,7 @@ import {MonthProvider} from '../contexts/MonthContext';
 import {FiscalCycleProvider} from '../contexts/FiscalCycleContext';
 import {Colors} from '../theme/colors';
 import notifee, { EventType } from '@notifee/react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { SecureStorage } from '../services/SecureStorage';
 
 // Auth Screens
 import LoginScreen from '../screens/auth/LoginScreen';
@@ -235,9 +235,9 @@ const AppNavigator: React.FC = () => {
     const subscription = AppState.addEventListener('change', async (nextAppState) => {
       if (nextAppState === 'active') {
         try {
-          const pendingNav = await AsyncStorage.getItem('pending_notification_nav');
+          const pendingNav = await SecureStorage.getItem('pending_notification_nav');
           if (pendingNav === 'true') {
-            await AsyncStorage.removeItem('pending_notification_nav');
+            await SecureStorage.removeItem('pending_notification_nav');
             navigateToPending();
           }
         } catch (e) {

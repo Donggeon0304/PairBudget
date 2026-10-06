@@ -11,13 +11,23 @@ interface MemberProfile {
   email?: string;
 }
 
+interface JoinRequest {
+  uid: string;
+  email: string;
+  displayName: string;
+  requestedAt: Date;
+}
+
 interface HouseholdContextType {
   household: Household | null;
   categories: Category[];
   isLoading: boolean;
   hasHousehold: boolean;
+  joinRequest: JoinRequest | null;
   createHousehold: (name: string) => Promise<string>;
   joinHousehold: (inviteCode: string) => Promise<void>;
+  acceptJoinRequest: () => Promise<void>;
+  rejectJoinRequest: () => Promise<void>;
   leaveHousehold: () => Promise<void>;
   getMemberProfiles: () => Promise<MemberProfile[]>;
   regenerateInviteCode: () => Promise<string>;
@@ -60,6 +70,7 @@ export const HouseholdProvider: React.FC<HouseholdProviderProps> = ({children}) 
   const {user, updateUserProfile} = useAuth();
   const [household, setHousehold] = useState<Household | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [joinRequest, setJoinRequest] = useState<JoinRequest | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   // Listen to household changes in real-time
@@ -88,6 +99,17 @@ export const HouseholdProvider: React.FC<HouseholdProviderProps> = ({children}) 
               currency: data?.currency || 'KRW',
               createdAt: data?.createdAt?.toDate() || new Date(),
             });
+            // joinRequest 동기화
+            if (data?.joinRequest) {
+              setJoinRequest({
+                uid: data.joinRequest.uid,
+                email: data.joinRequest.email || '',
+                displayName: data.joinRequest.displayName || '',
+                requestedAt: data.joinRequest.requestedAt?.toDate?.() || new Date(),
+              });
+            } else {
+              setJoinRequest(null);
+            }
             // AsyncStorage에 공동 은행 목록 동기화 (headless task용)
             if (data?.coupleAccountBanks && data.coupleAccountBanks.length > 0) {
               saveCoupleAccountBanks(data.coupleAccountBanks).catch(() => {});
@@ -243,16 +265,60 @@ export const HouseholdProvider: React.FC<HouseholdProviderProps> = ({children}) 
       throw new Error('이미 참여 중인 가계부입니다');
     }
 
-    // Add user to household members
+    if (householdData.joinRequest?.uid) {
+      throw new Error('이미 다른 사용자의 참여 요청이 대기 중입니다');
+    }
+
+    // 참여 요청만 저장 (즉시 멤버 추가하지 않음)
     await firestore()
       .collection('households')
       .doc(householdDoc.id)
       .update({
-        members: firestore.FieldValue.arrayUnion(user.uid),
+        joinRequest: {
+          uid: user.uid,
+          email: user.email || '',
+          displayName: user.displayName || '',
+          requestedAt: firestore.FieldValue.serverTimestamp(),
+        },
+      });
+  };
+
+  /** 참여 요청 수락 — 기존 멤버만 호출 가능 */
+  const acceptJoinRequest = async (): Promise<void> => {
+    if (!user?.householdId || !household?.id) throw new Error('가계부에 속해 있지 않습니다.');
+
+    const doc = await firestore().collection('households').doc(household.id).get();
+    const data = doc.data();
+    const request = data?.joinRequest;
+
+    if (!request?.uid) throw new Error('참여 요청이 없습니다.');
+
+    // 멤버에 추가 + 요청 삭제
+    await firestore()
+      .collection('households')
+      .doc(household.id)
+      .update({
+        members: firestore.FieldValue.arrayUnion(request.uid),
+        joinRequest: firestore.FieldValue.delete(),
       });
 
-    // Update user's householdId
-    await updateUserProfile({householdId: householdDoc.id});
+    // 요청자의 householdId 업데이트
+    await firestore()
+      .collection('users')
+      .doc(request.uid)
+      .update({ householdId: household.id });
+  };
+
+  /** 참여 요청 거절 */
+  const rejectJoinRequest = async (): Promise<void> => {
+    if (!user?.householdId || !household?.id) throw new Error('가계부에 속해 있지 않습니다.');
+
+    await firestore()
+      .collection('households')
+      .doc(household.id)
+      .update({
+        joinRequest: firestore.FieldValue.delete(),
+      });
   };
 
   const setCoupleAccountBank = async (packageName: string): Promise<void> => {
@@ -456,8 +522,11 @@ export const HouseholdProvider: React.FC<HouseholdProviderProps> = ({children}) 
         categories,
         isLoading,
         hasHousehold: !!household,
+        joinRequest,
         createHousehold,
         joinHousehold,
+        acceptJoinRequest,
+        rejectJoinRequest,
         leaveHousehold,
         getMemberProfiles,
         regenerateInviteCode,

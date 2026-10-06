@@ -3,7 +3,7 @@
  * 사용자가 시작일을 설정하면 해당 시작일 기준으로 월별 날짜 범위를 계산
  */
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { SecureStorage } from '../services/SecureStorage';
 
 const STORAGE_KEY = '@PairBudget:fiscalCycle';
 
@@ -33,7 +33,7 @@ export const FiscalCycleProvider: React.FC<{ children: React.ReactNode }> = ({ c
   useEffect(() => {
     (async () => {
       try {
-        const raw = await AsyncStorage.getItem(STORAGE_KEY);
+        const raw = await SecureStorage.getItem(STORAGE_KEY);
         if (raw) {
           const parsed = JSON.parse(raw);
           setEnabled(parsed.enabled ?? false);
@@ -52,7 +52,7 @@ export const FiscalCycleProvider: React.FC<{ children: React.ReactNode }> = ({ c
     setEnabled(newEnabled);
     setStartDay(clampedDay);
     try {
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify({
+      await SecureStorage.setItem(STORAGE_KEY, JSON.stringify({
         enabled: newEnabled,
         startDay: clampedDay,
       }));

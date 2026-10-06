@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PairBudget - 개인정보 처리방침</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, 'Noto Sans KR', sans-serif; line-height: 1.8; color: #333; max-width: 720px; margin: 0 auto; padding: 24px 16px; background: #fafafa; }
+    h1 { font-size: 24px; margin-bottom: 8px; color: #111; }
+    h2 { font-size: 18px; margin-top: 32px; margin-bottom: 12px; color: #222; border-bottom: 1px solid #e0e0e0; padding-bottom: 8px; }
+    h3 { font-size: 15px; margin-top: 20px; margin-bottom: 8px; color: #333; }
+    p, li { font-size: 14px; margin-bottom: 8px; }
+    ul { padding-left: 20px; }
+    .date { color: #888; font-size: 13px; margin-bottom: 24px; }
+    .highlight { background: #fff3cd; padding: 12px 16px; border-radius: 8px; margin: 16px 0; font-size: 14px; }
+  </style>
+</head>
+<body>
+
+<h1>PairBudget 개인정보 처리방침</h1>
+<p class="date">시행일: 2026년 10월 7일</p>
+
+<p>PairBudget(이하 "앱")은 사용자의 개인정보를 중요시하며, 「개인정보 보호법」 등 관련 법령을 준수합니다. 본 방침은 앱이 수집하는 정보, 이용 목적, 보호 조치에 대해 안내합니다.</p>
+
+<h2>1. 수집하는 개인정보</h2>
+
+<h3>1-1. 회원 가입 시</h3>
+<ul>
+  <li>이메일 주소, 비밀번호 (이메일 가입 시)</li>
+  <li>Google 계정 정보 (Google 로그인 시: 이메일, 이름, 프로필 사진)</li>
+</ul>
+
+<h3>1-2. 서비스 이용 시</h3>
+<ul>
+  <li>거래 내역 정보 (금액, 가맹점, 카테고리, 메모)</li>
+  <li>금융 앱 알림 내용 (알림 접근 권한 허용 시)</li>
+  <li>SMS 문자 내용 (SMS 권한 허용 시, 금융 문자만 분석)</li>
+</ul>
+
+<div class="highlight">
+  💡 알림 및 SMS 데이터는 금융 거래 정보 추출 목적으로만 사용되며, 외부 서버로 전송되지 않습니다. 모든 분석은 사용자 기기 내에서만 이루어집니다.
+</div>
+
+<h2>2. 개인정보의 이용 목적</h2>
+<ul>
+  <li>가계부 서비스 제공 (거래 기록, 통계 분석)</li>
+  <li>커플/공동 가계부 기능 (상대방과 거래 내역 공유)</li>
+  <li>금융 알림 자동 파싱 (수동 입력 부담 감소)</li>
+  <li>앱 업데이트 알림</li>
+</ul>
+
+<h2>3. 개인정보의 보관 및 파기</h2>
+<ul>
+  <li>거래 내역: Firebase 서버에 암호화 저장, 회원 탈퇴 시 삭제</li>
+  <li>알림 아카이브: 기기 내 암호화 저장, 30일 후 자동 삭제</li>
+  <li>대기 거래: 기기 내 암호화 저장, 승인/거절 시 삭제</li>
+  <li>학습된 카테고리: 기기 내 암호화 저장, 앱 삭제 시 파기</li>
+</ul>
+
+<h2>4. 개인정보의 제3자 제공</h2>
+<p>앱은 사용자의 개인정보를 제3자에게 제공하지 않습니다. 단, 커플 가계부 기능 사용 시 상대방에게 공동 거래 내역이 공유됩니다.</p>
+
+<h2>5. 개인정보 보호 조치</h2>
+<ul>
+  <li>기기 내 데이터: Android EncryptedStorage (AES-256) 암호화 저장</li>
+  <li>서버 데이터: Firebase(Google Cloud) 암호화 저장 및 전송 (TLS)</li>
+  <li>접근 제어: Firebase 보안 규칙으로 본인/가구 멤버만 데이터 접근 가능</li>
+  <li>인증: Firebase Authentication (이메일/비밀번호, Google OAuth)</li>
+</ul>
+
+<h2>6. 사용자 권리</h2>
+<ul>
+  <li>개인정보 열람, 수정, 삭제 요청 가능</li>
+  <li>회원 탈퇴 시 모든 개인 데이터 삭제</li>
+  <li>알림/SMS 권한은 언제든지 기기 설정에서 해제 가능</li>
+</ul>
+
+<h2>7. 앱에서 사용하는 권한</h2>
+<ul>
+  <li><strong>알림 접근 (NotificationListenerService)</strong>: 금융 앱 알림에서 거래 정보를 자동 추출</li>
+  <li><strong>SMS 읽기/수신</strong>: 금융 문자에서 거래 정보를 자동 추출</li>
+  <li><strong>인터넷</strong>: Firebase 서버와 데이터 동기화</li>
+</ul>
+
+<h2>8. 연락처</h2>
+<p>개인정보 관련 문의사항이 있으시면 아래로 연락해주세요.</p>
+<ul>
+  <li>이메일: pairbudget.app@gmail.com</li>
+</ul>
+
+<h2>9. 방침 변경</h2>
+<p>본 방침이 변경되는 경우, 앱 내 공지 또는 본 페이지를 통해 안내드립니다.</p>
+
+</body>
+</html>

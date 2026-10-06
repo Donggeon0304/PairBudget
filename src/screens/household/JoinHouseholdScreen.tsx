@@ -175,6 +175,8 @@ const JoinHouseholdScreen: React.FC<JoinHouseholdScreenProps> = ({
     [code],
   );
 
+  const [requestSent, setRequestSent] = useState(false);
+
   const handleJoin = async () => {
     if (!isCodeComplete) return;
 
@@ -183,7 +185,7 @@ const JoinHouseholdScreen: React.FC<JoinHouseholdScreenProps> = ({
     const fullCode = code.join('');
     try {
       await joinHousehold(fullCode);
-      // Navigation happens automatically via AppNavigator
+      setRequestSent(true);
     } catch (err: any) {
       setError(err.message || '참여에 실패했습니다');
     } finally {
@@ -199,6 +201,28 @@ const JoinHouseholdScreen: React.FC<JoinHouseholdScreenProps> = ({
   const handleBack = () => {
     navigation.goBack();
   };
+
+  if (requestSent) {
+    return (
+      <View style={styles.container}>
+        <StatusBar barStyle="dark-content" backgroundColor={Colors.Background} />
+        <View style={{flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: Spacing.xl}}>
+          <Icon name="checkmark-circle" size={64} color={Colors.Primary} />
+          <Text style={[styles.title, {marginTop: Spacing.lg}]}>참여 요청 완료!</Text>
+          <Text style={[styles.subtitle, {textAlign: 'center'}]}>
+            상대방이 수락하면 자동으로 합류됩니다.{'\n'}
+            앱을 종료해도 괜찮아요.
+          </Text>
+          <TouchableOpacity
+            style={[styles.joinButton, {marginTop: Spacing.xl}]}
+            onPress={handleBack}
+          >
+            <Text style={styles.joinButtonText}>확인</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>

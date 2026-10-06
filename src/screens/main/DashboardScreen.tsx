@@ -34,7 +34,7 @@ import { formatCategoryLabel } from '../../utils/formatCategory';
 import { useHousehold } from '../../contexts/HouseholdContext';
 import type { Transaction } from '../../types';
 import { getPendingTransactions, checkNotificationPermission, requestNotificationPermission } from '../../services/NotificationService';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { SecureStorage } from '../../services/SecureStorage';
 import { useMonth } from '../../contexts/MonthContext';
 import { useFiscalCycle } from '../../contexts/FiscalCycleContext';
 import FiscalCycleSettingSheet from '../../components/FiscalCycleSettingSheet';
@@ -105,7 +105,7 @@ const AnimatedCount: React.FC<{
 const DashboardScreen: React.FC = () => {
   const navigation = useNavigation<any>();
   const { user } = useAuth();
-  const { household, categories } = useHousehold();
+  const { household, categories, joinRequest, acceptJoinRequest, rejectJoinRequest } = useHousehold();
   const { showAlert } = useAlert();
   const { currentMonth, setCurrentMonth, monthPickerVisible, setMonthPickerVisible, pickerYear, setPickerYear } = useMonth();
   const fiscalCycle = useFiscalCycle();
@@ -143,7 +143,7 @@ const DashboardScreen: React.FC = () => {
   // 첫 실행 시 알림 권한 체크 (접근 + 푸시)
   useEffect(() => {
     const checkPermissions = async () => {
-      const asked = await AsyncStorage.getItem('@PairBudget:notifPermAsked');
+      const asked = await SecureStorage.getItem('@PairBudget:notifPermAsked');
       if (asked) return;
 
       // 1. 알림 접근 허용 체크
@@ -172,7 +172,7 @@ const DashboardScreen: React.FC = () => {
         }
       }
 
-      await AsyncStorage.setItem('@PairBudget:notifPermAsked', 'true');
+      await SecureStorage.setItem('@PairBudget:notifPermAsked', 'true');
     };
     checkPermissions();
   }, []);
@@ -300,6 +300,70 @@ const DashboardScreen: React.FC = () => {
           />
         }
       >
+        {/* 참여 요청 알림 배너 */}
+        {joinRequest && (
+          <View style={{
+            backgroundColor: Colors.Primary + '15',
+            borderRadius: BorderRadius.md,
+            padding: Spacing.md,
+            marginHorizontal: Spacing.md,
+            marginTop: Spacing.sm,
+            borderWidth: 1,
+            borderColor: Colors.Primary + '30',
+          }}>
+            <View style={{flexDirection: 'row', alignItems: 'center', marginBottom: Spacing.sm}}>
+              <Icon name="person-add" size={20} color={Colors.Primary} />
+              <Text style={{fontSize: 15, fontWeight: '700', color: Colors.Text, marginLeft: Spacing.sm}}>
+                참여 요청
+              </Text>
+            </View>
+            <Text style={{fontSize: 14, color: Colors.TextSecondary, marginBottom: Spacing.md}}>
+              {joinRequest.displayName || joinRequest.email}님이 가계부에 참여를 요청했습니다.
+            </Text>
+            <View style={{flexDirection: 'row', gap: Spacing.sm}}>
+              <TouchableOpacity
+                style={{
+                  flex: 1,
+                  backgroundColor: Colors.Primary,
+                  borderRadius: BorderRadius.sm,
+                  paddingVertical: Spacing.sm,
+                  alignItems: 'center',
+                }}
+                onPress={async () => {
+                  try {
+                    await acceptJoinRequest();
+                    showAlert({title: '수락 완료', message: '가계부에 합류되었습니다.'});
+                  } catch (e: any) {
+                    showAlert({title: '오류', message: e.message});
+                  }
+                }}
+              >
+                <Text style={{color: '#fff', fontWeight: '700', fontSize: 14}}>수락</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={{
+                  flex: 1,
+                  backgroundColor: Colors.Surface,
+                  borderRadius: BorderRadius.sm,
+                  paddingVertical: Spacing.sm,
+                  alignItems: 'center',
+                  borderWidth: 1,
+                  borderColor: Colors.CardBorder,
+                }}
+                onPress={async () => {
+                  try {
+                    await rejectJoinRequest();
+                  } catch (e: any) {
+                    showAlert({title: '오류', message: e.message});
+                  }
+                }}
+              >
+                <Text style={{color: Colors.TextSecondary, fontWeight: '600', fontSize: 14}}>거절</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
         <View style={styles.header}>
           <View style={styles.monthPicker}>
             <TouchableOpacity onPress={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1))} hitSlop={{top:12,bottom:12,left:12,right:12}}>

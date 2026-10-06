@@ -8,7 +8,7 @@
  * 3. 매칭 안 되면 키워드 기반 정적 매핑 사용
  */
 
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { SecureStorage } from './SecureStorage';
 
 const LEARNED_KEY = '@PairBudget:learnedCategories';
 
@@ -108,7 +108,7 @@ let learnedMappings: Map<string, LearnedMapping> = new Map();
 /** Load learned mappings from AsyncStorage (항상 최신 데이터 로드) */
 async function loadLearnedMappings(): Promise<void> {
   try {
-    const json = await AsyncStorage.getItem(LEARNED_KEY);
+    const json = await SecureStorage.getItem(LEARNED_KEY);
     if (json) {
       const entries: [string, LearnedMapping][] = JSON.parse(json);
       learnedMappings = new Map(entries);
@@ -122,7 +122,7 @@ async function loadLearnedMappings(): Promise<void> {
 async function saveLearnedMappings(): Promise<void> {
   try {
     const entries = Array.from(learnedMappings.entries());
-    await AsyncStorage.setItem(LEARNED_KEY, JSON.stringify(entries));
+    await SecureStorage.setItem(LEARNED_KEY, JSON.stringify(entries));
   } catch {
     // ignore
   }
@@ -366,5 +366,5 @@ export async function initCategoryMapper(): Promise<void> {
  */
 export async function resetLearnedMappings(): Promise<void> {
   learnedMappings.clear();
-  await AsyncStorage.removeItem(LEARNED_KEY);
+  await SecureStorage.removeItem(LEARNED_KEY);
 }

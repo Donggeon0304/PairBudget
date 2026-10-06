@@ -13,7 +13,7 @@
 import RNAndroidNotificationListener, {
   RNAndroidNotificationListenerHeadlessJsName,
 } from 'react-native-android-notification-listener';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { SecureStorage } from './SecureStorage';
 import { AppRegistry } from 'react-native';
 import notifee, { AndroidImportance } from '@notifee/react-native';
 
@@ -74,7 +74,7 @@ async function readPending(): Promise<PendingTransaction[]> {
     return [...pendingCache]; // 얕은 복사: 원본 캐시 보호
   }
   try {
-    const json = await AsyncStorage.getItem(STORAGE_KEY);
+    const json = await SecureStorage.getItem(STORAGE_KEY);
     pendingCache = json ? (JSON.parse(json) as PendingTransaction[]) : [];
     return [...pendingCache];
   } catch (e) {
@@ -90,7 +90,7 @@ async function readPending(): Promise<PendingTransaction[]> {
 async function writePending(items: PendingTransaction[]): Promise<void> {
   pendingCache = items; // 캐시 즉시 갱신 (다음 readPending에서 사용)
   try {
-    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+    await SecureStorage.setItem(STORAGE_KEY, JSON.stringify(items));
   } catch (e) {
     console.error('[PairBudget] writePending AsyncStorage 실패:', e);
     // 캐시는 이미 갱신됨 → 다음 dedup에서는 정상 동작
@@ -116,7 +116,7 @@ async function saveToArchive(
       parsed.cardIssuer,
       new Date(),
     );
-    const archiveJson = await AsyncStorage.getItem(ARCHIVE_KEY);
+    const archiveJson = await SecureStorage.getItem(ARCHIVE_KEY);
     let archive: ArchivedNotification[] = archiveJson ? JSON.parse(archiveJson) : [];
 
     // 중복 체크
@@ -146,7 +146,7 @@ async function saveToArchive(
       archive = archive.slice(archive.length - 1000);
     }
 
-    await AsyncStorage.setItem(ARCHIVE_KEY, JSON.stringify(archive));
+    await SecureStorage.setItem(ARCHIVE_KEY, JSON.stringify(archive));
   } catch (e) {
     console.error('[PairBudget] 아카이브 저장 실패:', e);
   }
@@ -161,7 +161,7 @@ async function saveToArchive(
  * SettingsScreen에서 은행 등록 시 호출하세요.
  */
 export async function saveCoupleAccountBanks(banks: string[]): Promise<void> {
-  await AsyncStorage.setItem(COUPLE_BANKS_KEY, JSON.stringify(banks));
+  await SecureStorage.setItem(COUPLE_BANKS_KEY, JSON.stringify(banks));
 }
 
 /**
@@ -170,7 +170,7 @@ export async function saveCoupleAccountBanks(banks: string[]): Promise<void> {
  */
 export async function getCoupleAccountBanks(): Promise<string[]> {
   try {
-    const json = await AsyncStorage.getItem(COUPLE_BANKS_KEY);
+    const json = await SecureStorage.getItem(COUPLE_BANKS_KEY);
     return json ? (JSON.parse(json) as string[]) : [];
   } catch {
     return [];
@@ -660,7 +660,7 @@ export async function removePendingTransaction(id: string): Promise<void> {
  */
 export async function clearPendingTransactions(): Promise<void> {
   pendingCache = null; // 캐시 무효화
-  await AsyncStorage.removeItem(STORAGE_KEY);
+  await SecureStorage.removeItem(STORAGE_KEY);
 }
 
 // Re-export bank packages for convenience
@@ -675,7 +675,7 @@ export { learnCategoryMapping, getLearnedMapping, initCategoryMapper };
  */
 export async function getArchivedNotifications(daysBack: number): Promise<ArchivedNotification[]> {
   try {
-    const json = await AsyncStorage.getItem(ARCHIVE_KEY);
+    const json = await SecureStorage.getItem(ARCHIVE_KEY);
     if (!json) return [];
     
     const all: ArchivedNotification[] = JSON.parse(json);
@@ -705,7 +705,7 @@ export async function addRejectedHash(txHash: string): Promise<void> {
       hashes.push(txHash);
       // 최대 500개만 유지 (오래된 것 자동 제거)
       const trimmed = hashes.slice(-500);
-      await AsyncStorage.setItem(REJECTED_HASHES_KEY, JSON.stringify(trimmed));
+      await SecureStorage.setItem(REJECTED_HASHES_KEY, JSON.stringify(trimmed));
     }
   } catch (e) {
     console.error('[NotificationService] addRejectedHash error:', e);
@@ -717,7 +717,7 @@ export async function addRejectedHash(txHash: string): Promise<void> {
  */
 export async function getRejectedHashes(): Promise<string[]> {
   try {
-    const json = await AsyncStorage.getItem(REJECTED_HASHES_KEY);
+    const json = await SecureStorage.getItem(REJECTED_HASHES_KEY);
     return json ? JSON.parse(json) : [];
   } catch {
     return [];
@@ -734,13 +734,13 @@ const APPROVED_HASHES_KEY = '@PairBudget:approvedTxHashes';
  */
 export async function addApprovedTransaction(amount: number, issuer: string, dateTime: string): Promise<void> {
   try {
-    const json = await AsyncStorage.getItem(APPROVED_HASHES_KEY);
+    const json = await SecureStorage.getItem(APPROVED_HASHES_KEY);
     const list: Array<{ amount: number; issuer: string; dateTime: string; approvedAt: number }> = json ? JSON.parse(json) : [];
     list.push({ amount, issuer: (issuer || '').toLowerCase().replace(/\s+/g, ''), dateTime: (dateTime || '').trim(), approvedAt: Date.now() });
     // 최대 200개, 7일 이내만 유지
     const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
     const trimmed = list.filter(l => l.approvedAt > weekAgo).slice(-200);
-    await AsyncStorage.setItem(APPROVED_HASHES_KEY, JSON.stringify(trimmed));
+    await SecureStorage.setItem(APPROVED_HASHES_KEY, JSON.stringify(trimmed));
   } catch (e) {
     console.error('[NotificationService] addApprovedTransaction error:', e);
   }
@@ -751,7 +751,7 @@ export async function addApprovedTransaction(amount: number, issuer: string, dat
  */
 export async function isAlreadyApproved(amount: number, issuer: string, dateTime: string): Promise<boolean> {
   try {
-    const json = await AsyncStorage.getItem(APPROVED_HASHES_KEY);
+    const json = await SecureStorage.getItem(APPROVED_HASHES_KEY);
     if (!json) return false;
     const list: Array<{ amount: number; issuer: string; dateTime: string; approvedAt: number }> = JSON.parse(json);
     const normalizedIssuer = (issuer || '').toLowerCase().replace(/\s+/g, '');
