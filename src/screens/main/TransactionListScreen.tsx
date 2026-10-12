@@ -421,19 +421,6 @@ const TransactionListScreen: React.FC<TransactionListScreenProps> = ({ navigatio
         onPress={() => scrollRef.current?.scrollToOffset({ offset: 0, animated: true })}
       />
 
-      {/* ─── FAB ─── */}
-      <Animated.View
-        style={[styles.fabContainer, { transform: [{ scale: fabScale }] }]}
-      >
-        <TouchableOpacity
-          style={styles.fab}
-          onPress={handleFabPress}
-          activeOpacity={0.8}
-        >
-          <Icon name="add" size={28} color="#FFFFFF" />
-        </TouchableOpacity>
-      </Animated.View>
-
       {/* ─── Month Picker Modal ─── */}
       <Modal
         visible={monthPickerVisible}
