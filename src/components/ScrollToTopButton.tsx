@@ -18,12 +18,15 @@ interface ScrollToTopButtonProps {
   onPress: () => void;
   /** 버튼이 나타나는 스크롤 임계값 (기본 300) */
   threshold?: number;
+  /** 하단 여백 (기본 24, 모달 등에서 네비게이션 바 회피용) */
+  bottomOffset?: number;
 }
 
 const ScrollToTopButton: React.FC<ScrollToTopButtonProps> = ({
   scrollY,
   onPress,
   threshold = 300,
+  bottomOffset = 24,
 }) => {
   const visible = scrollY > threshold;
   const opacity = useRef(new Animated.Value(0)).current;
@@ -50,7 +53,7 @@ const ScrollToTopButton: React.FC<ScrollToTopButtonProps> = ({
     <Animated.View
       style={[
         styles.container,
-        { opacity, transform: [{ translateY }] },
+        { bottom: bottomOffset, opacity, transform: [{ translateY }] },
       ]}
       pointerEvents={visible ? 'auto' : 'none'}
     >
@@ -68,7 +71,6 @@ const ScrollToTopButton: React.FC<ScrollToTopButtonProps> = ({
 const styles = StyleSheet.create({
   container: {
     position: 'absolute',
-    bottom: 24,
     left: 20,
     zIndex: 100,
   },

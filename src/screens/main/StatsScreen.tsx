@@ -1370,7 +1370,7 @@ const StatsScreen: React.FC = () => {
 
                 <View style={{ height: Spacing.xxl }} />
               </ScrollView>
-              <ScrollToTopButton scrollY={detailScrollY} onPress={() => detailScrollRef.current?.scrollTo({ y: 0, animated: true })} />
+              <ScrollToTopButton scrollY={detailScrollY} onPress={() => detailScrollRef.current?.scrollTo({ y: 0, animated: true })} bottomOffset={48} />
             </View>
           );
         })()}
