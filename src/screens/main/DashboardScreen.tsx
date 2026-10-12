@@ -40,6 +40,7 @@ import { useFiscalCycle } from '../../contexts/FiscalCycleContext';
 import FiscalCycleSettingSheet from '../../components/FiscalCycleSettingSheet';
 import { checkForUpdate, CURRENT_VERSION_NAME } from '../../services/UpdateService';
 import { analyzeFixedCosts, FixedCostItem } from '../../utils/FixedCostAnalyzer';
+import ScrollToTopButton from '../../components/ScrollToTopButton';
 
 const GROUP_ICONS: Record<string, string> = {
   '식비': 'restaurant-outline',
@@ -117,6 +118,8 @@ const DashboardScreen: React.FC = () => {
   const [fixedCostExpanded, setFixedCostExpanded] = useState(false);
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(30)).current;
+  const scrollRef = useRef<ScrollView>(null);
+  const [scrollY, setScrollY] = useState(0);
 
   useEffect(() => {
     Animated.parallel([
@@ -286,8 +289,11 @@ const DashboardScreen: React.FC = () => {
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor={Colors.Background} />
       <ScrollView
+        ref={scrollRef}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        onScroll={(e) => setScrollY(e.nativeEvent.contentOffset.y)}
+        scrollEventThrottle={100}
         refreshControl={
           <RefreshControl
             refreshing={false}
@@ -599,6 +605,7 @@ const DashboardScreen: React.FC = () => {
 
         <View style={{ height: Spacing.xxl }} />
       </ScrollView>
+      <ScrollToTopButton scrollY={scrollY} onPress={() => scrollRef.current?.scrollTo({ y: 0, animated: true })} />
       {/* ─── Month Picker Modal ─── */}
       <Modal
         visible={monthPickerVisible}

@@ -21,6 +21,7 @@ import { Colors } from '../../theme/colors';
 import { Spacing, BorderRadius } from '../../theme/spacing';
 import { GlassCard } from '../../components/GlassCard';
 import CategorySelectModal from '../../components/CategorySelectModal';
+import ScrollToTopButton from '../../components/ScrollToTopButton';
 import { useAlert } from '../../components/CustomAlert';
 import { formatCurrency } from '../../utils/formatCurrency';
 import { useAuth } from '../../contexts/AuthContext';
@@ -45,6 +46,7 @@ const PendingTransactionsScreen: React.FC<{ navigation: any }> = ({ navigation }
   const [refreshing, setRefreshing] = useState(false);
   const [coupleBanks, setCoupleBanks] = useState<string[]>([]);
   const flatListRef = useRef<FlatList>(null);
+  const [scrollY, setScrollY] = useState(0);
 
   // 공동/개인 수동 오버라이드
   const [coupleOverride, setCoupleOverride] = useState<Record<string, boolean>>({});
@@ -1019,6 +1021,8 @@ const PendingTransactionsScreen: React.FC<{ navigation: any }> = ({ navigation }
         keyExtractor={item => item.id}
         contentContainerStyle={sortedTransactions.length === 0 ? {flex: 1} : styles.list}
         showsVerticalScrollIndicator={false}
+        onScroll={(e) => setScrollY(e.nativeEvent.contentOffset.y)}
+        scrollEventThrottle={100}
         ListHeaderComponent={
           <View>
             <View style={styles.header}>
@@ -1211,6 +1215,10 @@ const PendingTransactionsScreen: React.FC<{ navigation: any }> = ({ navigation }
             colors={[Colors.Primary]}
           />
         }
+      />
+      <ScrollToTopButton
+        scrollY={scrollY}
+        onPress={() => flatListRef.current?.scrollToOffset({ offset: 0, animated: true })}
       />
 
       {/* ─── 카테고리 선택 모달 ─── */}

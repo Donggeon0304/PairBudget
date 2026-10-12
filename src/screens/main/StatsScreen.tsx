@@ -25,6 +25,7 @@ import CategoryIcon from '../../components/CategoryIcon';
 import { Colors } from '../../theme/colors';
 import { Spacing, BorderRadius } from '../../theme/spacing';
 import { GlassCard } from '../../components/GlassCard';
+import ScrollToTopButton from '../../components/ScrollToTopButton';
 import { formatCurrency, formatCompactCurrency } from '../../utils/formatCurrency';
 import { getYearMonth, getStartOfMonth, getEndOfMonth, getMonthLabel } from '../../utils/dateUtils';
 import { useAuth } from '../../contexts/AuthContext';
@@ -173,6 +174,10 @@ const StatsScreen: React.FC = () => {
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const pendingReopenGroup = useRef<string | null>(null);
+  const scrollRef = useRef<ScrollView>(null);
+  const [scrollY, setScrollY] = useState(0);
+  const detailScrollRef = useRef<ScrollView>(null);
+  const [detailScrollY, setDetailScrollY] = useState(0);
 
   useEffect(() => {
     Animated.timing(fadeAnim, {
@@ -507,6 +512,9 @@ const StatsScreen: React.FC = () => {
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor={Colors.Background} />
       <ScrollView
+        ref={scrollRef}
+        onScroll={(e) => setScrollY(e.nativeEvent.contentOffset.y)}
+        scrollEventThrottle={100}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
         refreshControl={
@@ -771,6 +779,11 @@ const StatsScreen: React.FC = () => {
         </Animated.View>
       </ScrollView>
 
+      <ScrollToTopButton
+        scrollY={scrollY}
+        onPress={() => scrollRef.current?.scrollTo({ y: 0, animated: true })}
+      />
+
       {/* ─── Category Detail Modal ─── */}
       <Modal
         visible={selectedGroupForDetail !== null}
@@ -964,8 +977,11 @@ const StatsScreen: React.FC = () => {
               </View>
 
               <ScrollView
+                ref={detailScrollRef}
                 contentContainerStyle={detailStyles.scrollContent}
                 showsVerticalScrollIndicator={false}
+                onScroll={(e) => setDetailScrollY(e.nativeEvent.contentOffset.y)}
+                scrollEventThrottle={100}
               >
                 {/* ── 개인/공동/전체 필터 ── */}
                 <View style={{ flexDirection: 'row', marginBottom: Spacing.md, gap: Spacing.sm }}>
@@ -1354,6 +1370,7 @@ const StatsScreen: React.FC = () => {
 
                 <View style={{ height: Spacing.xxl }} />
               </ScrollView>
+              <ScrollToTopButton scrollY={detailScrollY} onPress={() => detailScrollRef.current?.scrollTo({ y: 0, animated: true })} />
             </View>
           );
         })()}

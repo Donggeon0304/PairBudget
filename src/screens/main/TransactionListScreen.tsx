@@ -21,6 +21,7 @@ import firestore from '@react-native-firebase/firestore';
 import Icon from 'react-native-vector-icons/Ionicons';
 import CategoryIcon from '../../components/CategoryIcon';
 import { useAlert } from '../../components/CustomAlert';
+import ScrollToTopButton from '../../components/ScrollToTopButton';
 import { Colors } from '../../theme/colors';
 import { Spacing, BorderRadius } from '../../theme/spacing';
 import { formatCurrency } from '../../utils/formatCurrency';
@@ -80,6 +81,8 @@ const TransactionListScreen: React.FC<TransactionListScreenProps> = ({ navigatio
   const [typeFilter, setTypeFilter] = useState<'all' | 'income' | 'expense'>('all');
   const [refreshing, setRefreshing] = useState(false);
   const fabScale = useRef(new Animated.Value(1)).current;
+  const scrollRef = useRef<FlatList<DateGroup>>(null);
+  const [scrollY, setScrollY] = useState(0);
 
   const monthLabel = fiscalCycle.getMonthDisplayLabel(currentMonth);
 
@@ -221,6 +224,9 @@ const TransactionListScreen: React.FC<TransactionListScreenProps> = ({ navigatio
 
       {/* ─── Transaction List ─── */}
       <FlatList
+        ref={scrollRef}
+        onScroll={(e) => setScrollY(e.nativeEvent.contentOffset.y)}
+        scrollEventThrottle={100}
         style={{flex: 1}}
         data={groupedData}
         keyExtractor={(item) => item.dateKey}
@@ -338,7 +344,7 @@ const TransactionListScreen: React.FC<TransactionListScreenProps> = ({ navigatio
               </View>
 
               {/* Transactions */}
-              {group.transactions.map((tx) => (
+              {group.transactions.map((tx: Transaction) => (
                 <TouchableOpacity
                   key={tx.id}
                   activeOpacity={0.7}
@@ -409,6 +415,11 @@ const TransactionListScreen: React.FC<TransactionListScreenProps> = ({ navigatio
             </View>
           )}
         />
+
+      <ScrollToTopButton
+        scrollY={scrollY}
+        onPress={() => scrollRef.current?.scrollToOffset({ offset: 0, animated: true })}
+      />
 
       {/* ─── FAB ─── */}
       <Animated.View
@@ -766,9 +777,9 @@ const styles = StyleSheet.create({
     right: 20,
   },
   fab: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: Colors.Primary,
     justifyContent: 'center',
     alignItems: 'center',

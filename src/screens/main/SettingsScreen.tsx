@@ -3,7 +3,7 @@
  * 프로필, 가계부 관리, 알림, 계정 설정
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -28,6 +28,7 @@ import { useHousehold } from '../../contexts/HouseholdContext';
 import { saveCoupleAccountBanks, checkNotificationPermission, requestNotificationPermission } from '../../services/NotificationService';
 import { checkForUpdate, CURRENT_VERSION_NAME } from '../../services/UpdateService';
 import { DraggableList } from '../../components/DraggableList';
+import ScrollToTopButton from '../../components/ScrollToTopButton';
 import firestore from '@react-native-firebase/firestore';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -165,6 +166,9 @@ const SettingsScreen: React.FC = () => {
   const { showAlert } = useAlert();
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
   const [listenerEnabled, setListenerEnabled] = useState(false);
+
+  const scrollRef = useRef<ScrollView>(null);
+  const [scrollY, setScrollY] = useState(0);
 
   // ─── 모달 상태 ─────────────────────────────────────────────────────────
   const [profileModalVisible, setProfileModalVisible] = useState(false);
@@ -1058,6 +1062,9 @@ const SettingsScreen: React.FC = () => {
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor={Colors.Background} />
       <ScrollView
+        ref={scrollRef}
+        onScroll={(e) => setScrollY(e.nativeEvent.contentOffset.y)}
+        scrollEventThrottle={100}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
@@ -1327,6 +1334,11 @@ const SettingsScreen: React.FC = () => {
 
         <View style={{ height: Spacing.xxl }} />
       </ScrollView>
+
+      <ScrollToTopButton
+        scrollY={scrollY}
+        onPress={() => scrollRef.current?.scrollTo({ y: 0, animated: true })}
+      />
 
       {/* ─── 모달들 ─── */}
       {renderProfileModal()}
