@@ -3,10 +3,11 @@
  * 최근 3개월 거래를 분석해 매달 반복되는 지출을 감지
  *
  * 고정비 판단 기준:
- * 1. 동일 description(정규화)이 3개월 중 2개월 이상 발생
+ * 1. 동일 description(정규화) + 동일 카테고리가 3개월 중 2개월 이상 발생
  * 2. 발생 월마다 1~2건 이하
  * 3. 금액 변동계수(CV) ≤ 0.15 (15% 이내)
- * 4. 제외: 식비/쇼핑/교통 카테고리, 포괄적 description
+ * 4. memo가 있는 경우 memo 일관성 체크
+ * 5. 제외: 식비/쇼핑 카테고리, 포괄적 description
  */
 
 import firestore from '@react-native-firebase/firestore';
@@ -16,6 +17,7 @@ export interface FixedCostTransaction {
   date: Date;
   amount: number;
   description: string;
+  memo?: string;
 }
 
 export interface FixedCostItem {
@@ -28,7 +30,7 @@ export interface FixedCostItem {
   monthlyAmounts: number[]; // 최근 3개월 금액 배열 [이번달, 1개월전, 2개월전]
   /** 고정비 판단 근거가 된 실제 거래 내역 (월별 그룹) */
   evidence: {
-    monthLabel: string;       // "2026년 10월" 등
+    monthLabel: string;
     transactions: FixedCostTransaction[];
   }[];
 }
@@ -40,9 +42,9 @@ interface FiscalCycleHelper {
 // ── 필터링 상수 ──
 
 /** 고정비 대상에서 제외할 카테고리 그룹 */
-const EXCLUDE_GROUPS = ['식비', '쇼핑', '교통'];
+const EXCLUDE_GROUPS = ['식비', '쇼핑'];
 
-/** 포괄적/일반적 description 블랙리스트 (정규화 후 매칭) */
+/** 포괄적/일반적 description 블랙리스트 (정규화 후 부분 매칭) */
 const DESCRIPTION_BLACKLIST = [
   '카드결제', '간편결제', '이체', '출금', '입금', '송금',
   '체크카드', '신용카드', '자동이체', '결제', '수수료',
@@ -70,15 +72,11 @@ export async function analyzeFixedCosts(
     months.push(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - i, 1));
   }
 
-  // 월 레이블 생성
   const monthLabels = months.map(m =>
     `${m.getFullYear()}년 ${m.getMonth() + 1}월`,
   );
 
-  // 각 월의 날짜 범위
   const monthRanges = months.map(m => fiscalCycle.getDateRange(m));
-
-  // 전체 범위
   const overallStart = monthRanges[2].start;
   const overallEnd = monthRanges[0].end;
 
@@ -97,6 +95,7 @@ export async function analyzeFixedCosts(
       return {
         amount: d.amount || 0,
         description: (d.description || '').trim(),
+        memo: (d.memo || '').trim(),
         categoryName: d.categoryName || '',
         categoryGroup: d.categoryGroup || '',
         categoryIcon: d.categoryIcon || '',
@@ -113,7 +112,7 @@ export async function analyzeFixedCosts(
     return tx.isCouple || tx.createdBy === userId;
   });
 
-  // ── description 정규화 ──
+  // ── description 정규화 (최소한만: 괄호 제거 + 법인명 제거 + 특수문자 제거) ──
   const normalizeDescription = (desc: string): string => {
     let normalized = desc;
     // 괄호와 내용 제거: "쿠팡(와우멤" → "쿠팡"
@@ -121,16 +120,18 @@ export async function analyzeFixedCosts(
     // 법인명 제거
     normalized = normalized.replace(/(주식회사|㈜|\(주\)|유한회사|유한공사)/g, '');
     // 특수문자, 공백 제거
-    normalized = normalized.replace(/[^가-힣a-zA-Z0-9]/g, '');
+    normalized = normalized.replace(/[^가-힣a-zA-Z0-9_]/g, '');
     return normalized || desc.trim();
   };
 
   // ── 블랙리스트 체크 ──
   const isBlacklistedDescription = (normalizedDesc: string): boolean => {
-    return DESCRIPTION_BLACKLIST.some(bl => normalizedDesc.includes(bl));
+    // 언더스코어 앞부분만 추출하여 블랙리스트 체크
+    const baseName = normalizedDesc.split('_')[0];
+    return DESCRIPTION_BLACKLIST.some(bl => baseName.includes(bl));
   };
 
-  // ── description별 월별 데이터 집계 ──
+  // ── description + 카테고리 기준으로 월별 데이터 집계 ──
   const descMap: Record<string, {
     displayName: string;
     categoryName: string;
@@ -141,6 +142,7 @@ export async function analyzeFixedCosts(
       count: number;
       transactions: FixedCostTransaction[];
     }[];
+    allMemos: string[];  // memo 일관성 체크용
   }> = {};
 
   filteredTx.forEach(tx => {
@@ -151,10 +153,13 @@ export async function analyzeFixedCosts(
     );
     if (monthIdx < 0) return;
 
-    const key = normalizeDescription(tx.description);
+    const normalizedDesc = normalizeDescription(tx.description);
 
     // 블랙리스트 description 제외
-    if (isBlacklistedDescription(key)) return;
+    if (isBlacklistedDescription(normalizedDesc)) return;
+
+    // 키: 정규화된 description + 카테고리 그룹 (같은 이름이라도 카테고리 다르면 별개)
+    const key = `${normalizedDesc}__${tx.categoryGroup}`;
 
     if (!descMap[key]) {
       descMap[key] = {
@@ -167,6 +172,7 @@ export async function analyzeFixedCosts(
           count: 0,
           transactions: [],
         })),
+        allMemos: [],
       };
     }
     const entry = descMap[key];
@@ -179,7 +185,11 @@ export async function analyzeFixedCosts(
       date: tx.date,
       amount: tx.amount,
       description: tx.description,
+      memo: tx.memo || undefined,
     });
+    if (tx.memo) {
+      entry.allMemos.push(tx.memo);
+    }
   });
 
   // ── 고정비 판단 ──
@@ -193,7 +203,7 @@ export async function analyzeFixedCosts(
     const monthsPresent = data.monthly.filter(m => m.count > 0).length;
     if (monthsPresent < 2) return;
 
-    // 발생 월마다 건수 1~2건 (구독/고정비는 월 1~2건이 정상)
+    // 발생 월마다 건수 1~2건
     const activeMonths = data.monthly.filter(m => m.count > 0);
     if (!activeMonths.every(m => m.count <= 2)) return;
 
@@ -213,7 +223,16 @@ export async function analyzeFixedCosts(
       const variance = activeAmounts.reduce((s, a) => s + Math.pow(a - avg, 2), 0) / activeAmounts.length;
       const stdDev = Math.sqrt(variance);
       const cv = avg > 0 ? stdDev / avg : 1;
-      if (cv > MAX_CV) return; // 변동 15% 초과 → 고정비 아님
+      if (cv > MAX_CV) return;
+    }
+
+    // ── memo 일관성 체크 ──
+    // memo가 있는 거래가 3건 이상이고, 모두 다른 memo면 → 포괄적 거래로 판단하여 제외
+    if (data.allMemos.length >= 3) {
+      const uniqueMemos = new Set(data.allMemos.map(m => m.replace(/[^가-힣a-zA-Z0-9]/g, '').toLowerCase()));
+      const uniqueRatio = uniqueMemos.size / data.allMemos.length;
+      // 고유 memo 비율이 80% 이상이면 매번 다른 내용 → 고정비 아님
+      if (uniqueRatio >= 0.8) return;
     }
 
     // 모든 월의 합계 (미발생 월은 0)
@@ -221,10 +240,8 @@ export async function analyzeFixedCosts(
       m.amounts.reduce((s, a) => s + a, 0),
     );
 
-    // 금액 동일 여부 (발생한 월 기준)
     const allSame = activeAmounts.every(a => a === activeAmounts[0]);
 
-    // 근거 데이터 구성
     const evidence = data.monthly.map((m, idx) => ({
       monthLabel: monthLabels[idx],
       transactions: m.transactions.sort((a, b) => a.date.getTime() - b.date.getTime()),
@@ -242,8 +259,6 @@ export async function analyzeFixedCosts(
     });
   });
 
-  // 금액 순 정렬 (높은 금액이 위로)
   fixedCosts.sort((a, b) => b.amount - a.amount);
-
   return fixedCosts;
 }
