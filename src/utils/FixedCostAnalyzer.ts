@@ -3,10 +3,9 @@
  * 최근 3개월 거래를 분석해 매달 반복되는 지출을 감지
  *
  * 고정비 판단 기준:
- * 1. 동일(또는 유사 70%+) description + 동일 카테고리가 3개월 전부 발생
- * 2. 발생 월마다 1~2건 이하
- * 3. 금액 변동계수(CV) ≤ 0.15 (15% 이내)
- * 4. 제외: 식비/쇼핑 카테고리, 포괄적 description
+ * 1. 동일(또는 유사 70%+) description + 동일 카테고리가 최소 2개월 발생
+ * 2. 금액 변동계수(CV) ≤ 0.15 (15% 이내)
+ * 3. 제외: 사용자 설정 카테고리, 포괄적 description
  */
 
 import firestore from '@react-native-firebase/firestore';
@@ -39,8 +38,11 @@ interface FiscalCycleHelper {
 
 // ── 필터링 상수 ──
 
-/** 고정비 대상에서 제외할 카테고리 그룹 */
-const EXCLUDE_GROUPS = ['식비', '쇼핑'];
+/** 고정비 제외 카테고리 설정 타입 */
+export interface ExcludeCategory {
+  group: string;     // 카테고리 그룹명 (예: '식비')
+  name?: string;     // 소카테고리명 (미지정 시 그룹 전체 제외)
+}
 
 /** 포괄적/일반적 description 블랙리스트 (정규화 후 부분 매칭) */
 const DESCRIPTION_BLACKLIST = [
@@ -95,6 +97,7 @@ export async function analyzeFixedCosts(
   userId: string,
   viewMode: 'all' | 'personal' | 'couple',
   fiscalCycle: FiscalCycleHelper,
+  excludeCategories: ExcludeCategory[] = [{ group: '식비' }],
 ): Promise<FixedCostItem[]> {
   // 최근 3개월 Date 객체 (이번달, 1개월전, 2개월전)
   const months: Date[] = [];
@@ -255,8 +258,13 @@ export async function analyzeFixedCosts(
     currentMonth.getMonth() === now.getMonth();
 
   Object.entries(descMap).forEach(([, data]) => {
-    // 제외 카테고리 그룹
-    if (EXCLUDE_GROUPS.includes(data.categoryGroup)) return;
+    // 제외 카테고리 체크 (group만 지정 시 그룹 전체 제외, name도 지정 시 해당 소카테고리만 제외)
+    const isExcluded = excludeCategories.some(ec =>
+      ec.name
+        ? data.categoryGroup === ec.group && data.categoryName === ec.name
+        : data.categoryGroup === ec.group,
+    );
+    if (isExcluded) return;
 
     // 최소 2개월 발생 필수
     const monthsPresent = data.monthly.filter(m => m.count > 0).length;
@@ -283,16 +291,13 @@ export async function analyzeFixedCosts(
       }
     }
 
-    // 발생 월마다 건수 1~2건
-    const activeMonths = data.monthly.filter(m => m.count > 0);
-    if (!activeMonths.every(m => m.count <= 2)) return;
-
     // 각 월의 합계 (전체)
     const monthlyAmounts = data.monthly.map(m =>
       m.amounts.reduce((s, a) => s + a, 0),
     );
 
     // 발생 월만의 합계 (CV/평균 계산용)
+    const activeMonths = data.monthly.filter(m => m.count > 0);
     const activeAmounts = activeMonths.map(m =>
       m.amounts.reduce((s, a) => s + a, 0),
     );

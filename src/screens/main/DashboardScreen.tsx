@@ -40,6 +40,7 @@ import { useFiscalCycle } from '../../contexts/FiscalCycleContext';
 import FiscalCycleSettingSheet from '../../components/FiscalCycleSettingSheet';
 import { checkForUpdate, CURRENT_VERSION_NAME } from '../../services/UpdateService';
 import { analyzeFixedCosts, FixedCostItem } from '../../utils/FixedCostAnalyzer';
+import { getFixedCostExcludeCategories } from '../../services/SecureStorage';
 import ScrollToTopButton from '../../components/ScrollToTopButton';
 
 const GROUP_ICONS: Record<string, string> = {
@@ -246,9 +247,11 @@ const DashboardScreen: React.FC = () => {
       setFixedCosts([]);
       return;
     }
-    analyzeFixedCosts(user.householdId, currentMonth, user.uid, 'personal', fiscalCycle)
-      .then(setFixedCosts)
-      .catch(() => setFixedCosts([]));
+    getFixedCostExcludeCategories().then(excludeList => {
+      analyzeFixedCosts(user.householdId!, currentMonth, user.uid!, 'personal', fiscalCycle, excludeList)
+        .then(setFixedCosts)
+        .catch(() => setFixedCosts([]));
+    });
   }, [user?.householdId, user?.uid, currentMonth, fiscalCycle.enabled, fiscalCycle.startDay]);
 
   const monthLabel = fiscalCycle.getMonthDisplayLabel(currentMonth);
@@ -505,7 +508,10 @@ const DashboardScreen: React.FC = () => {
                 >
                   <View style={styles.categoryLeft}>
                     <CategoryIcon icon={item.categoryIcon} categoryName={item.categoryName} size={16} color={Colors.TextSecondary} style={styles.categoryIcon} />
-                    <Text style={styles.categoryName} numberOfLines={1}>{item.description}</Text>
+                    <View style={{flex: 1}}>
+                      <Text style={styles.categoryName} numberOfLines={1}>{item.description}</Text>
+                      <Text style={styles.fixedCostCategory} numberOfLines={1}>{item.categoryName}</Text>
+                    </View>
                   </View>
                   <View style={styles.fixedCostRight}>
                     <Text style={styles.categoryAmount}>
@@ -717,9 +723,14 @@ const DashboardScreen: React.FC = () => {
                       color={Colors.Primary}
                       style={{marginRight: 8}}
                     />
-                    <Text style={styles.fixedDetailTitle} numberOfLines={1}>
-                      {fixedCostDetail.description}
-                    </Text>
+                    <View style={{flex: 1}}>
+                      <Text style={styles.fixedDetailTitle} numberOfLines={1}>
+                        {fixedCostDetail.description}
+                      </Text>
+                      <Text style={styles.fixedDetailCategoryLabel} numberOfLines={1}>
+                        {fixedCostDetail.categoryName}
+                      </Text>
+                    </View>
                   </View>
                   <TouchableOpacity onPress={() => setFixedCostDetail(null)}>
                     <Icon name="close" size={22} color={Colors.TextMuted} />
@@ -737,8 +748,6 @@ const DashboardScreen: React.FC = () => {
                     {fixedCostDetail.isFixed ? '고정 금액' : '변동 금액'}
                   </Text>
                 </View>
-
-                <Text style={styles.fixedDetailSubtitle}>판단 근거</Text>
 
                 {fixedCostDetail.evidence.map((ev, idx) => (
                   <View key={`ev-${idx}`} style={styles.fixedDetailMonth}>
@@ -920,6 +929,11 @@ const styles = StyleSheet.create({
     minWidth: 28,
     textAlign: 'center' as const,
   },
+  fixedCostCategory: {
+    fontSize: 11,
+    color: Colors.TextMuted,
+    marginTop: 1,
+  },
   fixedCostMore: {
     alignItems: 'center' as const,
     paddingVertical: 8,
@@ -956,6 +970,11 @@ const styles = StyleSheet.create({
     fontWeight: '700' as const,
     color: Colors.Text,
     flex: 1,
+  },
+  fixedDetailCategoryLabel: {
+    fontSize: 12,
+    color: Colors.TextMuted,
+    marginTop: 2,
   },
   fixedDetailSummary: {
     flexDirection: 'row' as const,

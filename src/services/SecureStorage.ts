@@ -92,3 +92,28 @@ export const SecureStorage = {
     }
   },
 };
+
+// ── 고정비 제외 카테고리 관리 ──
+
+const FIXED_COST_EXCLUDE_KEY = '@PairBudget:fixedCostExcludeCategories';
+
+export interface ExcludeCategorySetting {
+  group: string;
+  name?: string;
+}
+
+const DEFAULT_EXCLUDE: ExcludeCategorySetting[] = [{ group: '식비' }];
+
+export async function getFixedCostExcludeCategories(): Promise<ExcludeCategorySetting[]> {
+  const raw = await SecureStorage.getItem(FIXED_COST_EXCLUDE_KEY);
+  if (!raw) return DEFAULT_EXCLUDE;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return DEFAULT_EXCLUDE;
+  }
+}
+
+export async function setFixedCostExcludeCategories(categories: ExcludeCategorySetting[]): Promise<void> {
+  await SecureStorage.setItem(FIXED_COST_EXCLUDE_KEY, JSON.stringify(categories));
+}

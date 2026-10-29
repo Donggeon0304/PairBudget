@@ -27,6 +27,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useHousehold } from '../../contexts/HouseholdContext';
 import { saveCoupleAccountBanks, checkNotificationPermission, requestNotificationPermission } from '../../services/NotificationService';
 import { checkForUpdate, CURRENT_VERSION_NAME } from '../../services/UpdateService';
+import { getFixedCostExcludeCategories, setFixedCostExcludeCategories, ExcludeCategorySetting } from '../../services/SecureStorage';
 import { DraggableList } from '../../components/DraggableList';
 import ScrollToTopButton from '../../components/ScrollToTopButton';
 import firestore from '@react-native-firebase/firestore';
@@ -191,6 +192,9 @@ const SettingsScreen: React.FC = () => {
 
   const [coupleBankModalVisible, setCoupleBankModalVisible] = useState(false);
   const [selectedBanks, setSelectedBanks] = useState<string[]>(household?.coupleAccountBanks || []);
+
+  const [fixedCostExcludeModalVisible, setFixedCostExcludeModalVisible] = useState(false);
+  const [excludeCategories, setExcludeCategories] = useState<ExcludeCategorySetting[]>([]);
 
   const [memberProfiles, setMemberProfiles] = useState<{uid: string; displayName: string; photoURL?: string}[]>([]);
 
@@ -612,6 +616,78 @@ const SettingsScreen: React.FC = () => {
       console.error('공동 통장 은행 저장 실패:', error);
       showAlert({ title: '오류', message: '공동 통장 은행 저장에 실패했습니다.', icon: 'error' });
     }
+  };
+
+  // 고정비 제외 카테고리 모달 열기
+  const handleOpenFixedCostExcludeModal = async () => {
+    const saved = await getFixedCostExcludeCategories();
+    setExcludeCategories(saved);
+    setFixedCostExcludeModalVisible(true);
+  };
+
+  // 고정비 제외: 그룹 전체 토글
+  const toggleExcludeGroup = (group: string) => {
+    setExcludeCategories(prev => {
+      const hasFullGroup = prev.some(e => e.group === group && !e.name);
+      if (hasFullGroup) {
+        // 그룹 전체 제거 (소카테고리 단위 설정도 모두 제거)
+        return prev.filter(e => e.group !== group);
+      } else {
+        // 기존 소카테고리 설정 제거 후 그룹 전체 추가
+        return [...prev.filter(e => e.group !== group), { group }];
+      }
+    });
+  };
+
+  // 고정비 제외: 소카테고리 토글
+  const toggleExcludeSubcategory = (group: string, name: string) => {
+    setExcludeCategories(prev => {
+      const hasFullGroup = prev.some(e => e.group === group && !e.name);
+      if (hasFullGroup) {
+        // 그룹 전체가 체크된 상태 → 이 소카테고리만 해제 = 나머지 소카테고리를 개별 추가
+        const groupCats = categories.filter(c => c.type === 'expense' && (c as any).group === group);
+        const others = groupCats.filter(c => c.name !== name).map(c => ({ group, name: c.name }));
+        return [...prev.filter(e => e.group !== group), ...others];
+      }
+      const hasThis = prev.some(e => e.group === group && e.name === name);
+      if (hasThis) {
+        return prev.filter(e => !(e.group === group && e.name === name));
+      } else {
+        // 추가 후 그룹 전체가 되었는지 체크
+        const newList = [...prev, { group, name }];
+        const groupCats = categories.filter(c => c.type === 'expense' && (c as any).group === group);
+        const excludedInGroup = newList.filter(e => e.group === group && e.name);
+        if (excludedInGroup.length >= groupCats.length) {
+          // 모든 소카테고리가 체크됨 → 그룹 전체로 변경
+          return [...newList.filter(e => e.group !== group), { group }];
+        }
+        return newList;
+      }
+    });
+  };
+
+  // 소카테고리가 제외 상태인지 체크
+  const isSubcategoryExcluded = (group: string, name: string): boolean => {
+    return excludeCategories.some(e =>
+      (e.group === group && !e.name) || (e.group === group && e.name === name),
+    );
+  };
+
+  // 그룹 전체가 제외 상태인지 체크
+  const isGroupFullyExcluded = (group: string): boolean => {
+    return excludeCategories.some(e => e.group === group && !e.name);
+  };
+
+  // 그룹에 부분 제외가 있는지 (일부 소카테고리만)
+  const isGroupPartiallyExcluded = (group: string): boolean => {
+    if (isGroupFullyExcluded(group)) return false;
+    return excludeCategories.some(e => e.group === group && e.name);
+  };
+
+  const handleSaveFixedCostExclude = async () => {
+    await setFixedCostExcludeCategories(excludeCategories);
+    setFixedCostExcludeModalVisible(false);
+    showAlert({ title: '완료', message: '고정비 제외 카테고리가 저장되었습니다.', icon: 'success' });
   };
 
   // ─── 모달 렌더 ─────────────────────────────────────────────────────────
@@ -1056,6 +1132,125 @@ const SettingsScreen: React.FC = () => {
     </Modal>
   );
 
+  const renderFixedCostExcludeModal = () => {
+    // 지출 카테고리만, 그룹별로 묶기
+    const expenseCats = categories.filter(c => c.type === 'expense');
+    const groupMap = new Map<string, typeof expenseCats>();
+    expenseCats.forEach(cat => {
+      const group = (cat as any).group || cat.name;
+      if (!groupMap.has(group)) groupMap.set(group, []);
+      groupMap.get(group)!.push(cat);
+    });
+    const groups = Array.from(groupMap.keys());
+
+    return (
+      <Modal
+        visible={fixedCostExcludeModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setFixedCostExcludeModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContainer, styles.categoryModalContainer]}>
+            <View style={styles.categoryModalHeader}>
+              <Text style={styles.modalTitle}>고정비 제외 카테고리</Text>
+              <TouchableOpacity onPress={() => setFixedCostExcludeModalVisible(false)}>
+                <Icon name="close" size={24} color={Colors.TextSecondary} />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={{ fontSize: 12, color: Colors.TextMuted, paddingHorizontal: 16, marginBottom: 8 }}>
+              체크된 카테고리는 고정비 분석에서 제외됩니다
+            </Text>
+
+            <ScrollView style={styles.categoryList} showsVerticalScrollIndicator={false}>
+              {groups.map(group => {
+                const groupCats = groupMap.get(group) || [];
+                const isFullExclude = isGroupFullyExcluded(group);
+                const isPartial = isGroupPartiallyExcluded(group);
+
+                return (
+                  <View key={group}>
+                    {/* 그룹 헤더 (전체 체크) */}
+                    <TouchableOpacity
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        paddingVertical: 12,
+                        paddingHorizontal: 16,
+                        backgroundColor: Colors.Surface,
+                        borderBottomWidth: 1,
+                        borderBottomColor: Colors.Divider,
+                      }}
+                      onPress={() => toggleExcludeGroup(group)}
+                    >
+                      <Icon
+                        name={isFullExclude ? 'checkbox' : isPartial ? 'remove-circle' : 'square-outline'}
+                        size={22}
+                        color={isFullExclude || isPartial ? Colors.Primary : Colors.TextMuted}
+                      />
+                      <Text style={{ flex: 1, fontSize: 15, fontWeight: '700', color: Colors.Text, marginLeft: 10 }}>
+                        {group}
+                      </Text>
+                      <Text style={{ fontSize: 12, color: Colors.TextMuted }}>
+                        {groupCats.length}개
+                      </Text>
+                    </TouchableOpacity>
+
+                    {/* 소카테고리 목록 */}
+                    {groupCats.sort((a, b) => a.order - b.order).map(cat => {
+                      const checked = isSubcategoryExcluded(group, cat.name);
+                      return (
+                        <TouchableOpacity
+                          key={cat.id}
+                          style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            paddingVertical: 10,
+                            paddingHorizontal: 16,
+                            paddingLeft: 32,
+                            borderBottomWidth: 1,
+                            borderBottomColor: Colors.Divider,
+                          }}
+                          onPress={() => toggleExcludeSubcategory(group, cat.name)}
+                        >
+                          <Icon
+                            name={checked ? 'checkbox' : 'square-outline'}
+                            size={20}
+                            color={checked ? Colors.Primary : Colors.TextMuted}
+                          />
+                          <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: cat.color + '18', justifyContent: 'center', alignItems: 'center', marginLeft: 10, marginRight: 8 }}>
+                            <Icon name={cat.icon || 'cash-outline'} size={14} color={cat.color} />
+                          </View>
+                          <Text style={{ flex: 1, fontSize: 14, color: Colors.Text }}>{cat.name}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                );
+              })}
+            </ScrollView>
+
+            <View style={styles.modalButtonRow}>
+              <TouchableOpacity
+                style={styles.modalCancelBtn}
+                onPress={() => setFixedCostExcludeModalVisible(false)}
+              >
+                <Text style={styles.modalCancelText}>취소</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.modalConfirmBtn}
+                onPress={handleSaveFixedCostExclude}
+              >
+                <Text style={styles.modalConfirmText}>저장</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    );
+  };
+
   // ─── 메인 렌더 ─────────────────────────────────────────────────────────
 
   return (
@@ -1137,6 +1332,13 @@ const SettingsScreen: React.FC = () => {
             subtitle="등록한 은행 알림은 공동 지출로 자동 분류됩니다"
             value={coupleBankCount > 0 ? `${coupleBankCount}개` : '미등록'}
             onPress={handleOpenCoupleBankModal}
+          />
+          <View style={styles.separator} />
+          <SettingsRow
+            icon="calculator-outline"
+            title="고정비 제외 카테고리"
+            subtitle="선택한 카테고리는 고정비 분석에서 제외됩니다"
+            onPress={handleOpenFixedCostExcludeModal}
           />
         </GlassCard>
 
@@ -1346,6 +1548,7 @@ const SettingsScreen: React.FC = () => {
       {renderCategoryModal()}
       {renderAddCategoryModal()}
       {renderCoupleBankModal()}
+      {renderFixedCostExcludeModal()}
     </View>
   );
 };
