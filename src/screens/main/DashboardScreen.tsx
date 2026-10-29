@@ -116,6 +116,7 @@ const DashboardScreen: React.FC = () => {
   const [fiscalSheetVisible, setFiscalSheetVisible] = useState(false);
   const [fixedCosts, setFixedCosts] = useState<FixedCostItem[]>([]);
   const [fixedCostExpanded, setFixedCostExpanded] = useState(false);
+  const [fixedCostDetail, setFixedCostDetail] = useState<FixedCostItem | null>(null);
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(30)).current;
   const scrollRef = useRef<ScrollView>(null);
@@ -496,7 +497,12 @@ const DashboardScreen: React.FC = () => {
                 />
               </TouchableOpacity>
               {(fixedCostExpanded ? fixedCosts : fixedCosts.slice(0, 3)).map((item, i) => (
-                <View key={`fc-${i}`} style={styles.fixedCostRow}>
+                <TouchableOpacity
+                  key={`fc-${i}`}
+                  style={styles.fixedCostRow}
+                  activeOpacity={0.6}
+                  onPress={() => setFixedCostDetail(item)}
+                >
                   <View style={styles.categoryLeft}>
                     <CategoryIcon icon={item.categoryIcon} categoryName={item.categoryName} size={16} color={Colors.TextSecondary} style={styles.categoryIcon} />
                     <Text style={styles.categoryName} numberOfLines={1}>{item.description}</Text>
@@ -509,7 +515,7 @@ const DashboardScreen: React.FC = () => {
                       {item.isFixed ? '고정' : '변동'}
                     </Text>
                   </View>
-                </View>
+                </TouchableOpacity>
               ))}
               {!fixedCostExpanded && fixedCosts.length > 3 && (
                 <TouchableOpacity onPress={() => setFixedCostExpanded(true)} style={styles.fixedCostMore}>
@@ -686,6 +692,82 @@ const DashboardScreen: React.FC = () => {
         visible={fiscalSheetVisible}
         onClose={() => setFiscalSheetVisible(false)}
       />
+
+      {/* ─── 고정비 상세 모달 ─── */}
+      <Modal
+        visible={!!fixedCostDetail}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setFixedCostDetail(null)}
+      >
+        <TouchableOpacity
+          style={styles.fixedDetailOverlay}
+          activeOpacity={1}
+          onPress={() => setFixedCostDetail(null)}
+        >
+          <TouchableOpacity activeOpacity={1} style={styles.fixedDetailSheet}>
+            {fixedCostDetail && (
+              <>
+                <View style={styles.fixedDetailHeader}>
+                  <View style={{flexDirection: 'row', alignItems: 'center', flex: 1}}>
+                    <CategoryIcon
+                      icon={fixedCostDetail.categoryIcon}
+                      categoryName={fixedCostDetail.categoryName}
+                      size={20}
+                      color={Colors.Primary}
+                      style={{marginRight: 8}}
+                    />
+                    <Text style={styles.fixedDetailTitle} numberOfLines={1}>
+                      {fixedCostDetail.description}
+                    </Text>
+                  </View>
+                  <TouchableOpacity onPress={() => setFixedCostDetail(null)}>
+                    <Icon name="close" size={22} color={Colors.TextMuted} />
+                  </TouchableOpacity>
+                </View>
+
+                <View style={styles.fixedDetailSummary}>
+                  <Text style={styles.fixedDetailAmount}>
+                    {fixedCostDetail.isFixed ? '' : '평균 '}{formatCurrency(fixedCostDetail.amount)}
+                  </Text>
+                  <Text style={[styles.fixedDetailBadge, {
+                    color: fixedCostDetail.isFixed ? Colors.Primary : '#F59E0B',
+                    backgroundColor: fixedCostDetail.isFixed ? Colors.Primary + '15' : '#F59E0B15',
+                  }]}>
+                    {fixedCostDetail.isFixed ? '고정 금액' : '변동 금액'}
+                  </Text>
+                </View>
+
+                <Text style={styles.fixedDetailSubtitle}>판단 근거</Text>
+
+                {fixedCostDetail.evidence.map((ev, idx) => (
+                  <View key={`ev-${idx}`} style={styles.fixedDetailMonth}>
+                    <View style={styles.fixedDetailMonthHeader}>
+                      <Text style={styles.fixedDetailMonthLabel}>{ev.monthLabel}</Text>
+                      {ev.transactions.length === 0 && (
+                        <Text style={styles.fixedDetailEmpty}>발생 없음</Text>
+                      )}
+                    </View>
+                    {ev.transactions.map((tx, ti) => (
+                      <View key={`tx-${idx}-${ti}`} style={styles.fixedDetailTxRow}>
+                        <Text style={styles.fixedDetailTxDate}>
+                          {tx.date.getMonth() + 1}/{tx.date.getDate()}
+                        </Text>
+                        <Text style={styles.fixedDetailTxDesc} numberOfLines={1}>
+                          {tx.description}
+                        </Text>
+                        <Text style={styles.fixedDetailTxAmount}>
+                          {formatCurrency(tx.amount)}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                ))}
+              </>
+            )}
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 };
@@ -847,6 +929,99 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: Colors.Primary,
     fontWeight: '600' as const,
+  },
+  // ── 고정비 상세 모달 ──
+  fixedDetailOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  fixedDetailSheet: {
+    backgroundColor: Colors.Surface,
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.lg,
+    width: '100%',
+    maxHeight: '80%',
+  },
+  fixedDetailHeader: {
+    flexDirection: 'row' as const,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: Spacing.md,
+  },
+  fixedDetailTitle: {
+    fontSize: 17,
+    fontWeight: '700' as const,
+    color: Colors.Text,
+    flex: 1,
+  },
+  fixedDetailSummary: {
+    flexDirection: 'row' as const,
+    alignItems: 'center',
+    marginBottom: Spacing.md,
+    gap: 8,
+  },
+  fixedDetailAmount: {
+    fontSize: 22,
+    fontWeight: '800' as const,
+    color: Colors.Text,
+  },
+  fixedDetailBadge: {
+    fontSize: 11,
+    fontWeight: '700' as const,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    overflow: 'hidden' as const,
+  },
+  fixedDetailSubtitle: {
+    fontSize: 13,
+    fontWeight: '600' as const,
+    color: Colors.TextMuted,
+    marginBottom: Spacing.sm,
+  },
+  fixedDetailMonth: {
+    marginBottom: Spacing.sm,
+  },
+  fixedDetailMonthHeader: {
+    flexDirection: 'row' as const,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  fixedDetailMonthLabel: {
+    fontSize: 13,
+    fontWeight: '700' as const,
+    color: Colors.TextSecondary,
+  },
+  fixedDetailEmpty: {
+    fontSize: 12,
+    color: Colors.TextMuted,
+    fontStyle: 'italic' as const,
+  },
+  fixedDetailTxRow: {
+    flexDirection: 'row' as const,
+    alignItems: 'center',
+    paddingVertical: 4,
+    paddingLeft: 8,
+  },
+  fixedDetailTxDate: {
+    fontSize: 13,
+    color: Colors.TextMuted,
+    width: 40,
+  },
+  fixedDetailTxDesc: {
+    fontSize: 13,
+    color: Colors.Text,
+    flex: 1,
+    marginHorizontal: 6,
+  },
+  fixedDetailTxAmount: {
+    fontSize: 13,
+    fontWeight: '600' as const,
+    color: Colors.Text,
   },
 });
 

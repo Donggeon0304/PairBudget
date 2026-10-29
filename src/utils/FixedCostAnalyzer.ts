@@ -1,31 +1,61 @@
 /**
  * 고정비 자동 분석 유틸리티
  * 최근 3개월 거래를 분석해 매달 반복되는 지출을 감지
+ *
+ * 고정비 판단 기준:
+ * 1. 동일 description(정규화)이 3개월 중 2개월 이상 발생
+ * 2. 발생 월마다 1~2건 이하
+ * 3. 금액 변동계수(CV) ≤ 0.15 (15% 이내)
+ * 4. 제외: 식비/쇼핑/교통 카테고리, 포괄적 description
  */
 
 import firestore from '@react-native-firebase/firestore';
+
+/** 고정비로 판단된 거래의 개별 기록 */
+export interface FixedCostTransaction {
+  date: Date;
+  amount: number;
+  description: string;
+}
 
 export interface FixedCostItem {
   description: string;      // 가맹점명
   categoryName: string;
   categoryGroup: string;
   categoryIcon: string;
-  amount: number;           // 고정 금액 또는 3개월 평균
+  amount: number;           // 고정 금액 또는 평균
   isFixed: boolean;         // true: 매달 동일 금액, false: 변동(평균)
   monthlyAmounts: number[]; // 최근 3개월 금액 배열 [이번달, 1개월전, 2개월전]
+  /** 고정비 판단 근거가 된 실제 거래 내역 (월별 그룹) */
+  evidence: {
+    monthLabel: string;       // "2026년 10월" 등
+    transactions: FixedCostTransaction[];
+  }[];
 }
 
 interface FiscalCycleHelper {
   getDateRange: (date: Date) => { start: Date; end: Date };
 }
 
+// ── 필터링 상수 ──
+
+/** 고정비 대상에서 제외할 카테고리 그룹 */
+const EXCLUDE_GROUPS = ['식비', '쇼핑', '교통'];
+
+/** 포괄적/일반적 description 블랙리스트 (정규화 후 매칭) */
+const DESCRIPTION_BLACKLIST = [
+  '카드결제', '간편결제', '이체', '출금', '입금', '송금',
+  '체크카드', '신용카드', '자동이체', '결제', '수수료',
+];
+
+/** 최소 평균 금액 (이하 무시) */
+const MIN_AMOUNT = 1000;
+
+/** 변동계수(CV) 상한 — 초과 시 고정비 아님 */
+const MAX_CV = 0.15;
+
 /**
  * 고정비 분석
- * @param householdId 가계부 ID
- * @param currentMonth 현재 선택된 월
- * @param userId 사용자 UID
- * @param viewMode 개인/공동/전체
- * @param fiscalCycle 회계주기 헬퍼
  */
 export async function analyzeFixedCosts(
   householdId: string,
@@ -40,14 +70,19 @@ export async function analyzeFixedCosts(
     months.push(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - i, 1));
   }
 
+  // 월 레이블 생성
+  const monthLabels = months.map(m =>
+    `${m.getFullYear()}년 ${m.getMonth() + 1}월`,
+  );
+
   // 각 월의 날짜 범위
   const monthRanges = months.map(m => fiscalCycle.getDateRange(m));
 
-  // 전체 범위 (가장 과거 시작 ~ 현재 월 끝)
+  // 전체 범위
   const overallStart = monthRanges[2].start;
   const overallEnd = monthRanges[0].end;
 
-  // Firestore에서 3개월 데이터 한 번에 조회 (type 필터는 코드에서 처리 — 복합 인덱스 불필요)
+  // Firestore에서 3개월 데이터 조회
   const snap = await firestore()
     .collection('households').doc(householdId)
     .collection('transactions')
@@ -56,191 +91,154 @@ export async function analyzeFixedCosts(
     .get();
 
   const allTx = snap.docs
-    .filter(doc => doc.data().type === 'expense') // expense만 대상
+    .filter(doc => doc.data().type === 'expense')
     .map(doc => {
-    const d = doc.data();
-    return {
-      amount: d.amount || 0,
-      description: (d.description || '').trim(),
-      memo: (d.memo || '').trim(),
-      categoryName: d.categoryName || '',
-      categoryGroup: d.categoryGroup || '',
-      categoryIcon: d.categoryIcon || '',
-      date: d.date?.toDate() || new Date(),
-      isCouple: d.isCouple || false,
-      createdBy: d.createdBy || '',
-    };
-  });
+      const d = doc.data();
+      return {
+        amount: d.amount || 0,
+        description: (d.description || '').trim(),
+        categoryName: d.categoryName || '',
+        categoryGroup: d.categoryGroup || '',
+        categoryIcon: d.categoryIcon || '',
+        date: d.date?.toDate() || new Date(),
+        isCouple: d.isCouple || false,
+        createdBy: d.createdBy || '',
+      };
+    });
 
   // viewMode 필터
   const filteredTx = allTx.filter(tx => {
     if (viewMode === 'couple') return tx.isCouple;
     if (viewMode === 'personal') return !tx.isCouple && tx.createdBy === userId;
-    return tx.isCouple || tx.createdBy === userId; // all
+    return tx.isCouple || tx.createdBy === userId;
   });
 
-  // description 정규화: 유사한 가맹점명을 같은 그룹으로 합치기
+  // ── description 정규화 ──
   const normalizeDescription = (desc: string): string => {
     let normalized = desc;
     // 괄호와 내용 제거: "쿠팡(와우멤" → "쿠팡"
     normalized = normalized.replace(/[(\[（【].*/g, '');
-    // 법인명 제거: "쿠팡 주식회사" → "쿠팡"
+    // 법인명 제거
     normalized = normalized.replace(/(주식회사|㈜|\(주\)|유한회사|유한공사)/g, '');
-    // 언더스코어 뒤 제거: "배민클럽_우" → "배민클럽"
-    normalized = normalized.replace(/_.*$/, '');
     // 특수문자, 공백 제거
     normalized = normalized.replace(/[^가-힣a-zA-Z0-9]/g, '');
-    // 빈 문자열 방지
     return normalized || desc.trim();
   };
 
-  // description별 월별 데이터 집계 (정규화된 키 기준)
+  // ── 블랙리스트 체크 ──
+  const isBlacklistedDescription = (normalizedDesc: string): boolean => {
+    return DESCRIPTION_BLACKLIST.some(bl => normalizedDesc.includes(bl));
+  };
+
+  // ── description별 월별 데이터 집계 ──
   const descMap: Record<string, {
-    displayName: string;    // 화면에 보여줄 원본 이름 (가장 최근 것)
+    displayName: string;
     categoryName: string;
     categoryGroup: string;
     categoryIcon: string;
-    memos: string[];        // memo 텍스트 모음 (2차 매칭용)
-    monthly: { amounts: number[]; count: number }[];
+    monthly: {
+      amounts: number[];
+      count: number;
+      transactions: FixedCostTransaction[];
+    }[];
   }> = {};
 
   filteredTx.forEach(tx => {
     if (!tx.description) return;
 
-    // 어느 월에 해당하는지 확인
     const monthIdx = monthRanges.findIndex(({ start, end }) =>
       tx.date >= start && tx.date <= end,
     );
     if (monthIdx < 0) return;
 
     const key = normalizeDescription(tx.description);
+
+    // 블랙리스트 description 제외
+    if (isBlacklistedDescription(key)) return;
+
     if (!descMap[key]) {
       descMap[key] = {
         displayName: tx.description,
         categoryName: tx.categoryName,
         categoryGroup: tx.categoryGroup,
         categoryIcon: tx.categoryIcon,
-        memos: [],
-        monthly: months.map(() => ({ amounts: [], count: 0 })),
+        monthly: months.map(() => ({
+          amounts: [],
+          count: 0,
+          transactions: [],
+        })),
       };
     }
     const entry = descMap[key];
-    // 가장 최근 거래의 이름을 표시명으로 사용
     if (monthIdx === 0) {
       entry.displayName = tx.description;
     }
-    if (tx.memo) {
-      entry.memos.push(tx.memo);
-    }
     entry.monthly[monthIdx].amounts.push(tx.amount);
     entry.monthly[monthIdx].count++;
+    entry.monthly[monthIdx].transactions.push({
+      date: tx.date,
+      amount: tx.amount,
+      description: tx.description,
+    });
   });
 
-  // 2차 매칭: 유사 항목 병합
-  // 조건: 같은 카테고리 + 금액 ±5% + (공통 키워드 3글자 이상 OR 키가 상대 memo에 포함)
-  const descKeys = Object.keys(descMap);
-  const mergedKeys = new Set<string>();
-
-  // memo 텍스트 정규화 (공백/특수문자 제거)
-  const normalizeMemo = (memo: string) => memo.replace(/[^가-힣a-zA-Z0-9]/g, '').toLowerCase();
-
-  for (let i = 0; i < descKeys.length; i++) {
-    if (mergedKeys.has(descKeys[i])) continue;
-    const a = descMap[descKeys[i]];
-
-    for (let j = i + 1; j < descKeys.length; j++) {
-      if (mergedKeys.has(descKeys[j])) continue;
-      const b = descMap[descKeys[j]];
-
-      // 같은 카테고리 그룹?
-      if (a.categoryGroup !== b.categoryGroup) continue;
-
-      // 금액 비슷한가? (±5%) — 먼저 체크 (빠른 필터)
-      const aAmts = a.monthly.flatMap(m => m.amounts);
-      const bAmts = b.monthly.flatMap(m => m.amounts);
-      if (aAmts.length === 0 || bAmts.length === 0) continue;
-      const aAvg = aAmts.reduce((s, v) => s + v, 0) / aAmts.length;
-      const bAvg = bAmts.reduce((s, v) => s + v, 0) / bAmts.length;
-      const maxAvg = Math.max(aAvg, bAvg);
-      if (maxAvg === 0) continue;
-      const ratio = Math.min(aAvg, bAvg) / maxAvg;
-      if (ratio < 0.95) continue;
-
-      // 유사도 판단: 키 공통 OR 키↔memo 포함
-      let isSimilar = false;
-
-      // 방법 1: 정규화 키 사이 공통 키워드 3글자 이상
-      const shorter = descKeys[i].length <= descKeys[j].length ? descKeys[i] : descKeys[j];
-      const longer = descKeys[i].length > descKeys[j].length ? descKeys[i] : descKeys[j];
-      for (let len = 3; len <= shorter.length && !isSimilar; len++) {
-        for (let s = 0; s <= shorter.length - len; s++) {
-          if (longer.includes(shorter.substring(s, s + len))) {
-            isSimilar = true;
-            break;
-          }
-        }
-      }
-
-      // 방법 2: 한쪽 키가 상대 memo에 포함 (3글자 이상 키만)
-      if (!isSimilar && descKeys[i].length >= 3) {
-        const keyI = descKeys[i].toLowerCase();
-        isSimilar = b.memos.some(m => normalizeMemo(m).includes(keyI));
-      }
-      if (!isSimilar && descKeys[j].length >= 3) {
-        const keyJ = descKeys[j].toLowerCase();
-        isSimilar = a.memos.some(m => normalizeMemo(m).includes(keyJ));
-      }
-
-      if (!isSimilar) continue;
-
-      // 합치기: b → a에 병합
-      for (let m = 0; m < a.monthly.length; m++) {
-        a.monthly[m].amounts.push(...b.monthly[m].amounts);
-        a.monthly[m].count += b.monthly[m].count;
-      }
-      a.memos.push(...b.memos);
-      mergedKeys.add(descKeys[j]);
-    }
-  }
-  // 병합된 항목 제거
-  mergedKeys.forEach(key => delete descMap[key]);
-
-  // 고정비 판단
+  // ── 고정비 판단 ──
   const fixedCosts: FixedCostItem[] = [];
-  // 고정비 대상에서 제외할 카테고리 그룹 (식당, 쇼핑은 반복되어도 고정비가 아님)
-  const EXCLUDE_GROUPS = ['식비', '쇼핑'];
 
-  Object.entries(descMap).forEach(([desc, data]) => {
+  Object.entries(descMap).forEach(([, data]) => {
     // 제외 카테고리 그룹
     if (EXCLUDE_GROUPS.includes(data.categoryGroup)) return;
 
-    // 3개월 연속 발생?
-    const allMonthsPresent = data.monthly.every(m => m.count > 0);
-    if (!allMonthsPresent) return;
+    // 3개월 중 최소 2개월 발생
+    const monthsPresent = data.monthly.filter(m => m.count > 0).length;
+    if (monthsPresent < 2) return;
 
-    // 월 3건 이하?
-    const allLowCount = data.monthly.every(m => m.count <= 3);
-    if (!allLowCount) return;
+    // 발생 월마다 건수 1~2건 (구독/고정비는 월 1~2건이 정상)
+    const activeMonths = data.monthly.filter(m => m.count > 0);
+    if (!activeMonths.every(m => m.count <= 2)) return;
 
-    // 각 월의 합계
+    // 각 발생 월의 합계
+    const activeAmounts = activeMonths.map(m =>
+      m.amounts.reduce((s, a) => s + a, 0),
+    );
+
+    // 평균 금액
+    const avg = activeAmounts.reduce((s, a) => s + a, 0) / activeAmounts.length;
+
+    // 최소 금액 체크
+    if (avg < MIN_AMOUNT) return;
+
+    // 변동계수(CV) 체크
+    if (activeAmounts.length >= 2) {
+      const variance = activeAmounts.reduce((s, a) => s + Math.pow(a - avg, 2), 0) / activeAmounts.length;
+      const stdDev = Math.sqrt(variance);
+      const cv = avg > 0 ? stdDev / avg : 1;
+      if (cv > MAX_CV) return; // 변동 15% 초과 → 고정비 아님
+    }
+
+    // 모든 월의 합계 (미발생 월은 0)
     const monthlyAmounts = data.monthly.map(m =>
       m.amounts.reduce((s, a) => s + a, 0),
     );
 
-    // 금액 동일 여부
-    const allSame = monthlyAmounts.every(a => a === monthlyAmounts[0]);
-    const avgAmount = Math.round(
-      monthlyAmounts.reduce((s, a) => s + a, 0) / monthlyAmounts.length,
-    );
+    // 금액 동일 여부 (발생한 월 기준)
+    const allSame = activeAmounts.every(a => a === activeAmounts[0]);
+
+    // 근거 데이터 구성
+    const evidence = data.monthly.map((m, idx) => ({
+      monthLabel: monthLabels[idx],
+      transactions: m.transactions.sort((a, b) => a.date.getTime() - b.date.getTime()),
+    }));
 
     fixedCosts.push({
       description: data.displayName,
       categoryName: data.categoryName,
       categoryGroup: data.categoryGroup,
       categoryIcon: data.categoryIcon,
-      amount: allSame ? monthlyAmounts[0] : avgAmount,
+      amount: allSame ? activeAmounts[0] : Math.round(avg),
       isFixed: allSame,
       monthlyAmounts,
+      evidence,
     });
   });
 
