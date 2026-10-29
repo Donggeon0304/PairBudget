@@ -808,11 +808,11 @@ const styles = StyleSheet.create({
   stackedBar: { flexDirection: 'row', height: 10, borderRadius: 5, overflow: 'hidden' },
   barSegment: { height: '100%' },
   categoryRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: Colors.Divider },
-  categoryLeft: { flexDirection: 'row', alignItems: 'center' },
+  categoryLeft: { flexDirection: 'row', alignItems: 'center', flex: 1 },
   categoryDot: { width: 8, height: 8, borderRadius: 4, marginRight: Spacing.sm },
   categoryIcon: { marginRight: Spacing.sm },
-  categoryName: { fontSize: 14, color: Colors.Text, fontWeight: '500' },
-  categoryRight: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+  categoryName: { fontSize: 14, color: Colors.Text, fontWeight: '500', flexShrink: 1 },
+  categoryRight: { flexDirection: 'row', alignItems: 'center', flexShrink: 0, gap: Spacing.sm },
   categoryAmount: { fontSize: 14, fontWeight: '600', color: Colors.Text },
   categoryPct: { fontSize: 12, color: Colors.TextMuted, width: 42, textAlign: 'right' },
   emptyCard: { marginBottom: Spacing.md, alignItems: 'center', paddingVertical: Spacing.xl },
@@ -921,6 +921,7 @@ const styles = StyleSheet.create({
   fixedCostRight: {
     flexDirection: 'row' as const,
     alignItems: 'center' as const,
+    flexShrink: 0,
     gap: 8,
   },
   fixedCostBadge: {

@@ -11,6 +11,8 @@
 - 코드 수정 후 빌드 시 반드시 `versionCode`와 `versionName`을 올린다 (`build.gradle` + `UpdateService.ts` 동시에).
 - 빌드 전 필수 검토: ① 미사용 변수/state 제거 ② 참조 일관성 grep 확인 ③ 정상/엣지 케이스 시뮬레이션 ④ import 누락 확인
 - 검토 없이 빌드 실행 금지. 빌드 성공은 런타임 정상 동작을 보장하지 않음.
+- **`gradlew clean` 절대 금지** — codegen 디렉토리를 삭제하여 CMake 에러를 유발함.
+- 빌드 실패 시 `Remove-Item -Recurse -Force android\app\build` 후 재빌드.
 
 ## 2. 개발 배포 (dev) 규칙
 - **개발 모드 배포 시 반드시 `scripts/deploy-dev.ps1` 스크립트를 사용할 것.**
@@ -27,10 +29,18 @@
 - APK를 바탕화면 등으로 임의 복사 금지. 사용자가 `D:\SideProjects\PairBudget\android\app\build\outputs\apk\release\`에서 직접 가져감.
 - **GitHub Release 배포 절차:**
   1. 빌드 완료 후 `git add -A && git commit && git push`
-  2. GitHub Release 생성 (태그: `v{버전}`)
-  3. APK 파일명은 반드시 **`PairBudget.apk`** (고정, 버전 번호 붙이지 말 것)
-  4. 다운로드 URL은 항상 고정: `https://github.com/Donggeon0304/PairBudget/releases/latest/download/PairBudget.apk`
+  2. 기존 최신 Release의 에셋(APK) 삭제
+  3. 기존 Release를 PATCH로 업데이트 (tag_name, name, body 변경)
+  4. 새 APK 업로드 — **파일명 반드시 `PairBudget.apk`** (`app-release.apk` 금지!)
   5. Firestore `app_config/version` 문서 업데이트는 **사용자가 직접 수행** (에이전트가 하지 않음)
+- **GitHub API 인증:**
+  - `Bearer` prefix 사용 금지 → 반드시 `token` prefix 사용: `Authorization = "token $token"`
+  - `Bearer`로 하면 401 에러 발생
+
+### 배포 시 자주 하는 실수 (체크리스트)
+- [ ] APK 에셋 이름이 `PairBudget.apk`인지 확인 (절대 `app-release.apk`로 올리지 않는다)
+- [ ] GitHub API 호출 시 `token` prefix 사용 중인지 확인
+- [ ] 기존 Release 에셋 삭제 후 새 에셋 업로드 순서 지켰는지 확인
 
 ## 3-1. Git 관리 규칙
 - **원격 저장소:** `https://github.com/Donggeon0304/PairBudget.git` (Private)
@@ -66,6 +76,22 @@
 - `.ts` 파일 수정 시 같은 디렉터리에 `.js` 파일이 있는지 반드시 확인 (Metro가 .js 우선 로드).
 - 파서(`parseMerchantGeneric` 등) 변경 시 반드시 `node test_parser.js`로 로컬 테스트 먼저 실행.
 - 테스트 없이 파서 코드 배포 금지.
+
+### 마인드셋
+- 오류가 발생하면 항상 **내 코드의 결함**을 먼저 의심할 것.
+- "코드 문제가 아닐 것이다"라고 섣불리 판단하지 말 것.
+- 확인하지 못한, 놓친 부분이 반드시 존재한다고 생각할 것.
+
+### Headless Task / 백그라운드 안전
+- **top-level import 금지**: headless task에서 JS 번들 전체가 로드되므로, 네이티브 모듈의 top-level import가 번들 크래시를 유발할 수 있음.
+- 네이티브 모듈(`react-native-blob-util` 등)은 **사용하는 함수 내부에서 lazy require**로 로드할 것.
+  ```typescript
+  // ❌ 금지: top-level import
+  import ReactNativeBlobUtil from 'react-native-blob-util';
+  
+  // ✅ 권장: 함수 내부 lazy require
+  const ReactNativeBlobUtil = require('react-native-blob-util').default;
+  ```
 
 ## 8. NotificationListenerService 관련
 - `force-stop`만으로 headless task가 죽었다고 가정 금지 (시스템 서비스라 부활함).
@@ -132,3 +158,16 @@
 - `index.ts` 수정했는데 반영 안됨 → 옆에 `index.js` 존재
 - **해결:** `.js` 삭제. `tsconfig.json`에 `noEmit: true`, `metro.config.js`에서 `.ts` 우선순위.
 - **2차 사고(2026-06-09):** `BankNotificationParser.js`가 `.ts` 옆에 존재 → 동일 원인 재발.
+
+## T15. GitHub Release APK 에셋 이름 불일치
+- 기존 릴리스들은 `PairBudget.apk`인데 `app-release.apk`로 업로드하여 다운로드 URL 불일치 발생
+- Firestore의 downloadUrl과 에셋 이름이 맞지 않으면 앱 업데이트 불가
+- **해결:** 에셋 이름은 반드시 `PairBudget.apk`로 고정. `?name=PairBudget.apk` 파라미터 확인 필수.
+
+## T16. GitHub API Bearer vs token 인증
+- `Authorization: Bearer $token`으로 호출 시 401 에러 발생
+- **해결:** GitHub Personal Access Token은 `Authorization: token $token` 형식으로만 인증 가능.
+
+## T17. gradlew clean으로 인한 빌드 불가
+- `gradlew clean` 실행 시 codegen 디렉토리가 삭제되어 CMake 에러 발생
+- **해결:** clean 절대 금지. 빌드 실패 시 `android/app/build` 디렉토리만 삭제 후 재빌드.

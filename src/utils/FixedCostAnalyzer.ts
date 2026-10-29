@@ -121,8 +121,15 @@ export async function analyzeFixedCosts(
     .where('date', '<=', overallEnd)
     .get();
 
+  // 금융 카테고리(적금/보험/대출이자 등)는 income으로 저장되더라도 고정비 분석 대상
+  const FINANCE_GROUPS = ['금융'];
+
   const allTx = snap.docs
-    .filter(doc => doc.data().type === 'expense')
+    .filter(doc => {
+      const d = doc.data();
+      return d.type === 'expense' ||
+        FINANCE_GROUPS.includes(d.categoryGroup || '');
+    })
     .map(doc => {
       const d = doc.data();
       return {
@@ -134,6 +141,7 @@ export async function analyzeFixedCosts(
         date: d.date?.toDate() || new Date(),
         isCouple: d.isCouple || false,
         createdBy: d.createdBy || '',
+        type: (d.type || 'expense') as 'income' | 'expense',
       };
     });
 
@@ -210,6 +218,16 @@ export async function analyzeFixedCosts(
     if (monthIdx === 0) {
       entry.displayName = tx.description;
     }
+
+    // 금융 카테고리: 같은 월에 동일 금액이 이미 있으면 중복(expense+income 양쪽 등록) → 건너뛰기
+    if (FINANCE_GROUPS.includes(tx.categoryGroup)) {
+      const existingAmounts = entry.monthly[monthIdx].amounts;
+      if (existingAmounts.includes(tx.amount) && tx.type === 'income') {
+        // expense가 이미 등록된 동일 금액 income은 건너뜀
+        return;
+      }
+    }
+
     entry.monthly[monthIdx].amounts.push(tx.amount);
     entry.monthly[monthIdx].count++;
     entry.monthly[monthIdx].transactions.push({
@@ -309,11 +327,13 @@ export async function analyzeFixedCosts(
     if (avg < MIN_AMOUNT) return;
 
     // 변동계수(CV) 체크 (발생 월 기준)
+    // 금융 카테고리(적금 등)는 여러 건이 합산되므로 CV 상한 완화
+    const effectiveMaxCv = FINANCE_GROUPS.includes(data.categoryGroup) ? 0.5 : MAX_CV;
     if (activeAmounts.length >= 2) {
       const variance = activeAmounts.reduce((s, a) => s + Math.pow(a - avg, 2), 0) / activeAmounts.length;
       const stdDev = Math.sqrt(variance);
       const cv = avg > 0 ? stdDev / avg : 1;
-      if (cv > MAX_CV) return;
+      if (cv > effectiveMaxCv) return;
     }
 
     // 금액 동일 여부 (발생 월 기준)
