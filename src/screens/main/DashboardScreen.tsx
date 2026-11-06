@@ -41,6 +41,11 @@ import FiscalCycleSettingSheet from '../../components/FiscalCycleSettingSheet';
 import { checkForUpdate, CURRENT_VERSION_NAME } from '../../services/UpdateService';
 import { analyzeFixedCosts, FixedCostItem } from '../../utils/FixedCostAnalyzer';
 import { getFixedCostExcludeCategories } from '../../services/SecureStorage';
+import {
+  pinFixedCost,
+  dismissFixedCost,
+  restoreFixedCost,
+} from '../../services/FixedCostPreferenceService';
 import ScrollToTopButton from '../../components/ScrollToTopButton';
 
 const GROUP_ICONS: Record<string, string> = {
@@ -242,7 +247,7 @@ const DashboardScreen: React.FC = () => {
   }, [user?.householdId, currentMonth, fiscalCycle.enabled, fiscalCycle.startDay]);
 
   // 🟢 고정비 분석 (항상 개인 거래만 — 공동 거래는 고정비 대상에서 제외)
-  useEffect(() => {
+  const loadFixedCosts = useCallback(() => {
     if (!user?.householdId || !user?.uid) {
       setFixedCosts([]);
       return;
@@ -252,7 +257,11 @@ const DashboardScreen: React.FC = () => {
         .then(setFixedCosts)
         .catch(() => setFixedCosts([]));
     });
-  }, [user?.householdId, user?.uid, currentMonth, fiscalCycle.enabled, fiscalCycle.startDay]);
+  }, [user?.householdId, user?.uid, currentMonth, fiscalCycle]);
+
+  useEffect(() => {
+    loadFixedCosts();
+  }, [loadFixedCosts]);
 
   const monthLabel = fiscalCycle.getMonthDisplayLabel(currentMonth);
 
@@ -490,7 +499,7 @@ const DashboardScreen: React.FC = () => {
                   <Icon name="repeat-outline" size={18} color={Colors.Primary} />
                   <Text style={[styles.sectionTitle, {marginBottom: 0}]}>고정비</Text>
                   <Text style={styles.fixedCostTotal}>
-                    {formatCurrency(fixedCosts.reduce((s, c) => s + c.amount, 0))}
+                    {formatCurrency(fixedCosts.reduce((s, c) => s + (c.isPending ? c.expectedAmount : c.amount), 0))}
                   </Text>
                 </View>
                 <Icon
@@ -502,23 +511,68 @@ const DashboardScreen: React.FC = () => {
               {(fixedCostExpanded ? fixedCosts : fixedCosts.slice(0, 3)).map((item, i) => (
                 <TouchableOpacity
                   key={`fc-${i}`}
-                  style={styles.fixedCostRow}
+                  style={[styles.fixedCostRow, item.isPending && { opacity: 0.55 }]}
                   activeOpacity={0.6}
                   onPress={() => setFixedCostDetail(item)}
+                  onLongPress={() => {
+                    const actionLabel = item.source === 'pinned' ? '고정비 등록 해제' : '고정비에서 제외';
+                    showAlert({
+                      title: item.description,
+                      message: `"${item.description}" (${item.categoryName})을(를) ${actionLabel}하시겠습니까?`,
+                      icon: 'warning',
+                      buttons: [
+                        { text: '취소', style: 'cancel' },
+                        {
+                          text: actionLabel,
+                          style: 'destructive',
+                          onPress: async () => {
+                            try {
+                              if (item.source === 'pinned') {
+                                await restoreFixedCost(user!.householdId!, item.preferenceKey);
+                              } else {
+                                await dismissFixedCost(user!.householdId!, {
+                                  key: item.preferenceKey,
+                                  displayName: item.description,
+                                  categoryGroup: item.categoryGroup,
+                                  categoryName: item.categoryName,
+                                  categoryIcon: item.categoryIcon,
+                                });
+                              }
+                              loadFixedCosts();
+                            } catch {
+                              showAlert({ title: '오류', message: '처리 중 문제가 발생했습니다.' });
+                            }
+                          },
+                        },
+                      ],
+                    });
+                  }}
                 >
                   <View style={styles.categoryLeft}>
-                    <CategoryIcon icon={item.categoryIcon} categoryName={item.categoryName} size={16} color={Colors.TextSecondary} style={styles.categoryIcon} />
+                    <CategoryIcon icon={item.categoryIcon} categoryName={item.categoryName} size={16} color={item.isPending ? Colors.TextMuted : Colors.TextSecondary} style={styles.categoryIcon} />
                     <View style={{flex: 1}}>
-                      <Text style={styles.categoryName} numberOfLines={1}>{item.description}</Text>
-                      <Text style={styles.fixedCostCategory} numberOfLines={1}>{item.categoryName}</Text>
+                      <View style={{flexDirection: 'row', alignItems: 'center', gap: 4}}>
+                        {item.source === 'pinned' && (
+                          <Icon name="pin" size={12} color={Colors.Primary} />
+                        )}
+                        <Text style={[styles.categoryName, item.isPending && { color: Colors.TextMuted }]} numberOfLines={1}>{item.description}</Text>
+                      </View>
+                      <Text style={styles.fixedCostCategory} numberOfLines={1}>
+                        {item.categoryName}
+                        {item.isPending && item.expectedDay ? `  ·  약 ${item.expectedDay}일` : ''}
+                      </Text>
                     </View>
                   </View>
                   <View style={styles.fixedCostRight}>
-                    <Text style={styles.categoryAmount}>
-                      {item.isFixed ? '' : '~'}{formatCurrency(item.amount)}
+                    <Text style={[styles.categoryAmount, item.isPending && { color: Colors.TextMuted }]}>
+                      {item.isPending ? '~' : (item.isFixed ? '' : '~')}{formatCurrency(item.isPending ? item.expectedAmount : item.amount)}
                     </Text>
-                    <Text style={[styles.fixedCostBadge, { color: item.isFixed ? Colors.Primary : Colors.TextMuted }]}>
-                      {item.isFixed ? '고정' : '변동'}
+                    <Text style={[styles.fixedCostBadge, {
+                      color: item.isPending
+                        ? '#F59E0B'
+                        : item.isFixed ? Colors.Primary : Colors.TextMuted,
+                    }]}>
+                      {item.isPending ? '예정' : (item.isFixed ? '고정' : '변동')}
                     </Text>
                   </View>
                 </TouchableOpacity>
@@ -742,11 +796,23 @@ const DashboardScreen: React.FC = () => {
                     {fixedCostDetail.isFixed ? '' : '평균 '}{formatCurrency(fixedCostDetail.amount)}
                   </Text>
                   <Text style={[styles.fixedDetailBadge, {
-                    color: fixedCostDetail.isFixed ? Colors.Primary : '#F59E0B',
-                    backgroundColor: fixedCostDetail.isFixed ? Colors.Primary + '15' : '#F59E0B15',
+                    color: fixedCostDetail.isPending
+                      ? '#F59E0B'
+                      : fixedCostDetail.isFixed ? Colors.Primary : '#F59E0B',
+                    backgroundColor: fixedCostDetail.isPending
+                      ? '#F59E0B15'
+                      : fixedCostDetail.isFixed ? Colors.Primary + '15' : '#F59E0B15',
                   }]}>
-                    {fixedCostDetail.isFixed ? '고정 금액' : '변동 금액'}
+                    {fixedCostDetail.isPending ? '결제 예정' : (fixedCostDetail.isFixed ? '고정 금액' : '변동 금액')}
                   </Text>
+                  {fixedCostDetail.source === 'pinned' && (
+                    <Text style={[styles.fixedDetailBadge, {
+                      color: Colors.Primary,
+                      backgroundColor: Colors.Primary + '15',
+                    }]}>
+                      📌 등록됨
+                    </Text>
+                  )}
                 </View>
 
                 {fixedCostDetail.evidence.map((ev, idx) => (
@@ -754,7 +820,11 @@ const DashboardScreen: React.FC = () => {
                     <View style={styles.fixedDetailMonthHeader}>
                       <Text style={styles.fixedDetailMonthLabel}>{ev.monthLabel}</Text>
                       {ev.transactions.length === 0 && (
-                        <Text style={styles.fixedDetailEmpty}>발생 없음</Text>
+                        <Text style={styles.fixedDetailEmpty}>
+                          {idx === 0 && fixedCostDetail.isPending && fixedCostDetail.expectedDay
+                            ? `약 ${fixedCostDetail.expectedDay}일 결제 예정`
+                            : '발생 없음'}
+                        </Text>
                       )}
                     </View>
                     {ev.transactions.map((tx, ti) => (
@@ -772,6 +842,101 @@ const DashboardScreen: React.FC = () => {
                     ))}
                   </View>
                 ))}
+
+                {/* 고정비 관리 버튼 */}
+                <View style={styles.fixedDetailActions}>
+                  {fixedCostDetail.source === 'pinned' ? (
+                    <TouchableOpacity
+                      style={[styles.fixedDetailActionBtn, { borderColor: Colors.Expense }]}
+                      onPress={() => {
+                        showAlert({
+                          title: '등록 해제',
+                          message: `"${fixedCostDetail.description}" 고정비 등록을 해제하시겠습니까?\n자동 감지 조건을 만족하면 다시 표시됩니다.`,
+                          icon: 'warning',
+                          buttons: [
+                            { text: '취소', style: 'cancel' },
+                            {
+                              text: '해제',
+                              style: 'destructive',
+                              onPress: async () => {
+                                try {
+                                  await restoreFixedCost(user!.householdId!, fixedCostDetail.preferenceKey);
+                                  setFixedCostDetail(null);
+                                  loadFixedCosts();
+                                } catch {
+                                  showAlert({ title: '오류', message: '처리 중 문제가 발생했습니다.' });
+                                }
+                              },
+                            },
+                          ],
+                        });
+                      }}
+                    >
+                      <Icon name="pin-outline" size={16} color={Colors.Expense} />
+                      <Text style={[styles.fixedDetailActionText, { color: Colors.Expense }]}>등록 해제</Text>
+                    </TouchableOpacity>
+                  ) : (
+                    <>
+                      <TouchableOpacity
+                        style={[styles.fixedDetailActionBtn, { borderColor: Colors.Primary }]}
+                        onPress={async () => {
+                          try {
+                            await pinFixedCost(user!.householdId!, {
+                              key: fixedCostDetail.preferenceKey,
+                              displayName: fixedCostDetail.description,
+                              categoryGroup: fixedCostDetail.categoryGroup,
+                              categoryName: fixedCostDetail.categoryName,
+                              categoryIcon: fixedCostDetail.categoryIcon,
+                            });
+                            setFixedCostDetail(null);
+                            loadFixedCosts();
+                            showAlert({ title: '등록 완료', message: `"${fixedCostDetail.description}"을(를) 고정비로 등록했습니다.`, icon: 'success' });
+                          } catch {
+                            showAlert({ title: '오류', message: '처리 중 문제가 발생했습니다.' });
+                          }
+                        }}
+                      >
+                        <Icon name="pin" size={16} color={Colors.Primary} />
+                        <Text style={[styles.fixedDetailActionText, { color: Colors.Primary }]}>고정비로 등록</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[styles.fixedDetailActionBtn, { borderColor: Colors.TextMuted }]}
+                        onPress={() => {
+                          showAlert({
+                            title: '고정비에서 제외',
+                            message: `"${fixedCostDetail.description}"을(를) 고정비에서 제외하시겠습니까?\n설정에서 다시 복원할 수 있습니다.`,
+                            icon: 'warning',
+                            buttons: [
+                              { text: '취소', style: 'cancel' },
+                              {
+                                text: '제외',
+                                style: 'destructive',
+                                onPress: async () => {
+                                  try {
+                                    await dismissFixedCost(user!.householdId!, {
+                                      key: fixedCostDetail.preferenceKey,
+                                      displayName: fixedCostDetail.description,
+                                      categoryGroup: fixedCostDetail.categoryGroup,
+                                      categoryName: fixedCostDetail.categoryName,
+                                      categoryIcon: fixedCostDetail.categoryIcon,
+                                    });
+                                    setFixedCostDetail(null);
+                                    loadFixedCosts();
+                                  } catch {
+                                    showAlert({ title: '오류', message: '처리 중 문제가 발생했습니다.' });
+                                  }
+                                },
+                              },
+                            ],
+                          });
+                        }}
+                      >
+                        <Icon name="eye-off-outline" size={16} color={Colors.TextMuted} />
+                        <Text style={[styles.fixedDetailActionText, { color: Colors.TextMuted }]}>제외</Text>
+                      </TouchableOpacity>
+                    </>
+                  )}
+                </View>
               </>
             )}
           </TouchableOpacity>
@@ -1042,6 +1207,28 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600' as const,
     color: Colors.Text,
+  },
+  fixedDetailActions: {
+    flexDirection: 'row' as const,
+    gap: 8,
+    marginTop: Spacing.md,
+    paddingTop: Spacing.md,
+    borderTopWidth: 0.5,
+    borderTopColor: Colors.Divider,
+  },
+  fixedDetailActionBtn: {
+    flex: 1,
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    paddingVertical: 10,
+    borderRadius: BorderRadius.sm,
+    borderWidth: 1,
+    gap: 6,
+  },
+  fixedDetailActionText: {
+    fontSize: 13,
+    fontWeight: '600' as const,
   },
 });
 

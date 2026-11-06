@@ -28,6 +28,11 @@ import { useHousehold } from '../../contexts/HouseholdContext';
 import { saveCoupleAccountBanks, checkNotificationPermission, requestNotificationPermission } from '../../services/NotificationService';
 import { checkForUpdate, CURRENT_VERSION_NAME } from '../../services/UpdateService';
 import { getFixedCostExcludeCategories, setFixedCostExcludeCategories, ExcludeCategorySetting } from '../../services/SecureStorage';
+import {
+  loadFixedCostPreferences,
+  restoreFixedCost,
+  FixedCostPreference,
+} from '../../services/FixedCostPreferenceService';
 import { DraggableList } from '../../components/DraggableList';
 import ScrollToTopButton from '../../components/ScrollToTopButton';
 import firestore from '@react-native-firebase/firestore';
@@ -195,6 +200,9 @@ const SettingsScreen: React.FC = () => {
 
   const [fixedCostExcludeModalVisible, setFixedCostExcludeModalVisible] = useState(false);
   const [excludeCategories, setExcludeCategories] = useState<ExcludeCategorySetting[]>([]);
+
+  const [fixedCostPrefModalVisible, setFixedCostPrefModalVisible] = useState(false);
+  const [fixedCostPrefs, setFixedCostPrefs] = useState<Record<string, FixedCostPreference>>({});
 
   const [memberProfiles, setMemberProfiles] = useState<{uid: string; displayName: string; photoURL?: string}[]>([]);
 
@@ -688,6 +696,39 @@ const SettingsScreen: React.FC = () => {
     await setFixedCostExcludeCategories(excludeCategories);
     setFixedCostExcludeModalVisible(false);
     showAlert({ title: '완료', message: '고정비 제외 카테고리가 저장되었습니다.', icon: 'success' });
+  };
+
+  // ── 고정비 관리 (pin/dismiss) ──
+  const handleOpenFixedCostPrefModal = async () => {
+    if (!user?.householdId) return;
+    const prefs = await loadFixedCostPreferences(user.householdId);
+    setFixedCostPrefs(prefs);
+    setFixedCostPrefModalVisible(true);
+  };
+
+  const handleRestoreFixedCostPref = async (key: string) => {
+    if (!user?.householdId) return;
+    showAlert({
+      title: '복원',
+      message: '이 설정을 해제하고 자동 감지 모드로 되돌리시겠습니까?',
+      icon: 'warning',
+      buttons: [
+        { text: '취소', style: 'cancel' },
+        {
+          text: '복원',
+          onPress: async () => {
+            try {
+              await restoreFixedCost(user.householdId!, key);
+              const updated = { ...fixedCostPrefs };
+              delete updated[key];
+              setFixedCostPrefs(updated);
+            } catch {
+              showAlert({ title: '오류', message: '처리 중 문제가 발생했습니다.' });
+            }
+          },
+        },
+      ],
+    });
   };
 
   // ─── 모달 렌더 ─────────────────────────────────────────────────────────
@@ -1251,6 +1292,94 @@ const SettingsScreen: React.FC = () => {
     );
   };
 
+  // ── 고정비 관리 모달 렌더 ──
+  const renderFixedCostPrefModal = () => {
+    const pinnedItems = Object.entries(fixedCostPrefs).filter(([, p]) => p.action === 'pin');
+    const dismissedItems = Object.entries(fixedCostPrefs).filter(([, p]) => p.action === 'dismiss');
+
+    return (
+      <Modal
+        visible={fixedCostPrefModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setFixedCostPrefModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <Text style={styles.modalTitle}>고정비 관리</Text>
+
+            {pinnedItems.length === 0 && dismissedItems.length === 0 ? (
+              <View style={{paddingVertical: Spacing.lg, alignItems: 'center'}}>
+                <Icon name="checkmark-circle-outline" size={40} color={Colors.TextMuted} />
+                <Text style={{color: Colors.TextMuted, marginTop: Spacing.sm, fontSize: 14}}>
+                  등록/제외한 항목이 없습니다
+                </Text>
+                <Text style={{color: Colors.TextMuted, fontSize: 12, marginTop: 4, textAlign: 'center'}}>
+                  대시보드에서 고정비를 길게 누르거나{'\n'}상세를 열어 관리할 수 있습니다
+                </Text>
+              </View>
+            ) : (
+              <ScrollView style={{maxHeight: 400}}>
+                {pinnedItems.length > 0 && (
+                  <>
+                    <Text style={{fontSize: 13, fontWeight: '700', color: Colors.Primary, marginBottom: 8, marginTop: 4}}>
+                      📌 등록한 고정비
+                    </Text>
+                    {pinnedItems.map(([key, pref]) => (
+                      <View key={key} style={{flexDirection: 'row', alignItems: 'center', paddingVertical: 8, borderBottomWidth: 0.5, borderBottomColor: Colors.Divider}}>
+                        <View style={{flex: 1}}>
+                          <Text style={{fontSize: 14, fontWeight: '600', color: Colors.Text}}>{pref.displayName}</Text>
+                          <Text style={{fontSize: 12, color: Colors.TextMuted}}>{pref.categoryName}</Text>
+                        </View>
+                        <TouchableOpacity
+                          onPress={() => handleRestoreFixedCostPref(key)}
+                          hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}
+                        >
+                          <Text style={{fontSize: 13, color: Colors.Expense, fontWeight: '600'}}>해제</Text>
+                        </TouchableOpacity>
+                      </View>
+                    ))}
+                  </>
+                )}
+
+                {dismissedItems.length > 0 && (
+                  <>
+                    <Text style={{fontSize: 13, fontWeight: '700', color: Colors.TextMuted, marginBottom: 8, marginTop: pinnedItems.length > 0 ? 16 : 4}}>
+                      🚫 제외한 항목
+                    </Text>
+                    {dismissedItems.map(([key, pref]) => (
+                      <View key={key} style={{flexDirection: 'row', alignItems: 'center', paddingVertical: 8, borderBottomWidth: 0.5, borderBottomColor: Colors.Divider}}>
+                        <View style={{flex: 1}}>
+                          <Text style={{fontSize: 14, fontWeight: '600', color: Colors.TextMuted}}>{pref.displayName}</Text>
+                          <Text style={{fontSize: 12, color: Colors.TextMuted}}>{pref.categoryName}</Text>
+                        </View>
+                        <TouchableOpacity
+                          onPress={() => handleRestoreFixedCostPref(key)}
+                          hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}
+                        >
+                          <Text style={{fontSize: 13, color: Colors.Primary, fontWeight: '600'}}>복원</Text>
+                        </TouchableOpacity>
+                      </View>
+                    ))}
+                  </>
+                )}
+              </ScrollView>
+            )}
+
+            <View style={styles.modalButtonRow}>
+              <TouchableOpacity
+                style={[styles.modalCancelBtn, {flex: 1}]}
+                onPress={() => setFixedCostPrefModalVisible(false)}
+              >
+                <Text style={styles.modalCancelText}>닫기</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    );
+  };
+
   // ─── 메인 렌더 ─────────────────────────────────────────────────────────
 
   return (
@@ -1339,6 +1468,13 @@ const SettingsScreen: React.FC = () => {
             title="고정비 제외 카테고리"
             subtitle="선택한 카테고리는 고정비 분석에서 제외됩니다"
             onPress={handleOpenFixedCostExcludeModal}
+          />
+          <View style={styles.separator} />
+          <SettingsRow
+            icon="list-outline"
+            title="고정비 관리"
+            subtitle="등록/제외한 고정비 항목을 확인하고 복원합니다"
+            onPress={handleOpenFixedCostPrefModal}
           />
         </GlassCard>
 
@@ -1549,6 +1685,7 @@ const SettingsScreen: React.FC = () => {
       {renderAddCategoryModal()}
       {renderCoupleBankModal()}
       {renderFixedCostExcludeModal()}
+      {renderFixedCostPrefModal()}
     </View>
   );
 };
