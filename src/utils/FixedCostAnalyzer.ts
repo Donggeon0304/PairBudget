@@ -319,41 +319,13 @@ export async function analyzeFixedCosts(
     if (!isPinned && monthsPresent < 2) return;
     if (isPinned && monthsPresent < 1) return;
 
-    // 현재 월(index 0) 미발생 시 → pending 상태 판단
-    let isPending = false;
-    let expectedDay: number | undefined;
-
+    // 현재 월(index 0) 미발생 시
     if (data.monthly[0].count === 0) {
       if (!isCurrentMonthActual) {
         // 과거 월을 보고 있는데 발생 없음 → pin이 아니면 제외
         if (!isPinned) return;
       }
-
-      // 이전 발생 월의 거래 날짜에서 day 추출
-      const prevDays: number[] = [];
-      for (let m = 1; m < data.monthly.length; m++) {
-        data.monthly[m].transactions.forEach(tx => {
-          prevDays.push(tx.date.getDate());
-        });
-      }
-
-      if (prevDays.length > 0) {
-        const latestDay = Math.max(...prevDays);
-        const currentDay = now.getDate();
-
-        // 예상 발생일 + 5일 마진이 지났으면 → pin이 아니면 제외
-        if (!isPinned && currentDay > latestDay + 5) return;
-
-        // pending 상태 설정
-        isPending = true;
-        expectedDay = Math.round(
-          prevDays.reduce((s, d) => s + d, 0) / prevDays.length,
-        );
-      } else if (!isPinned) {
-        return;
-      } else {
-        isPending = true;
-      }
+      // 이번 달에 아직 미발생이어도, 이전 달에 발생했으면 고정비로 유지
     }
 
     // 각 월의 합계
@@ -386,9 +358,9 @@ export async function analyzeFixedCosts(
     // 금액 동일 여부 (발생 월 기준)
     const allSame = activeAmounts.length > 0 && activeAmounts.every(a => a === activeAmounts[0]);
 
-    // 예상 금액 (pending용): 직전 발생 월의 합계, 없으면 평균
+    // 예상 금액 (이번 달 미발생 시 표시용): 직전 발생 월의 합계, 없으면 평균
     const expectedAmount = activeAmounts.length > 0
-      ? activeAmounts[0] // activeMonths[0]이 가장 최근 발생 월
+      ? activeAmounts[0]
       : Math.round(avg);
 
     const evidence = data.monthly.map((m, idx) => ({
@@ -407,9 +379,9 @@ export async function analyzeFixedCosts(
       evidence,
       source: isPinned ? 'pinned' : 'auto',
       preferenceKey: key,
-      isPending,
+      isPending: false,
       expectedAmount,
-      expectedDay,
+      expectedDay: undefined,
     });
   });
 
