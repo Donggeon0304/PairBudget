@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import {
   View,
   Text,
@@ -259,9 +259,12 @@ const DashboardScreen: React.FC = () => {
     });
   }, [user?.householdId, user?.uid, currentMonth, fiscalCycle]);
 
-  useEffect(() => {
-    loadFixedCosts();
-  }, [loadFixedCosts]);
+  // 탭 포커스 시 고정비 로드 (마운트 + 설정에서 복원 후 돌아올 때)
+  useFocusEffect(
+    useCallback(() => {
+      loadFixedCosts();
+    }, [loadFixedCosts]),
+  );
 
   const monthLabel = fiscalCycle.getMonthDisplayLabel(currentMonth);
 
@@ -311,8 +314,9 @@ const DashboardScreen: React.FC = () => {
           <RefreshControl
             refreshing={false}
             onRefresh={() => {
-              // Firestore onSnapshot이 실시간이라 리스너가 자동 갱신
-              // 화면을 다시 마운트하는 효과
+              // Firestore onSnapshot이 실시간이라 거래 리스너는 자동 갱신
+              // 고정비는 수동 분석이므로 명시적 새로고침 필요
+              loadFixedCosts();
             }}
             tintColor={Colors.Primary}
             colors={[Colors.Primary]}
