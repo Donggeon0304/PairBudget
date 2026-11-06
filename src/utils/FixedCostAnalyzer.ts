@@ -328,18 +328,22 @@ export async function analyzeFixedCosts(
       // 이번 달에 아직 미발생이어도, 이전 달에 발생했으면 고정비로 유지
     }
 
-    // 각 월의 합계
+    // 각 월의 합계 (표시용)
     const monthlyAmounts = data.monthly.map(m =>
       m.amounts.reduce((s, a) => s + a, 0),
     );
 
-    // 발생 월만의 합계 (CV/평균 계산용)
-    const activeMonths = data.monthly.filter(m => m.count > 0);
+    // CV/평균 계산용: 현재 진행 중인 달은 제외 (이전 달만으로 판단)
+    // 이번 달은 아직 진행 중이라 추가 입금 등으로 금액이 불완전할 수 있음
+    const cvMonthlyData = isCurrentMonthActual
+      ? data.monthly.slice(1) // M-1, M-2만
+      : data.monthly;         // 과거 월 조회 시 전부 포함
+    const activeMonths = cvMonthlyData.filter(m => m.count > 0);
     const activeAmounts = activeMonths.map(m =>
       m.amounts.reduce((s, a) => s + a, 0),
     );
 
-    // 평균 금액 (발생 월 기준)
+    // 평균 금액 (이전 발생 월 기준)
     const avg = activeAmounts.length > 0
       ? activeAmounts.reduce((s, a) => s + a, 0) / activeAmounts.length
       : 0;
@@ -347,7 +351,7 @@ export async function analyzeFixedCosts(
     // 최소 금액 체크 (pin이면 건너뜀)
     if (!isPinned && avg < MIN_AMOUNT) return;
 
-    // 변동계수(CV) 체크 — 모든 카테고리 동일 기준 (pin이면 건너뜀)
+    // 변동계수(CV) 체크 — 이전 달 기준, 모든 카테고리 동일 (pin이면 건너뜀)
     if (!isPinned && activeAmounts.length >= 2) {
       const variance = activeAmounts.reduce((s, a) => s + Math.pow(a - avg, 2), 0) / activeAmounts.length;
       const stdDev = Math.sqrt(variance);
@@ -355,10 +359,13 @@ export async function analyzeFixedCosts(
       if (cv > MAX_CV) return;
     }
 
-    // 금액 동일 여부 (발생 월 기준)
+    // 금액 동일 여부 (이전 발생 월 기준)
     const allSame = activeAmounts.length > 0 && activeAmounts.every(a => a === activeAmounts[0]);
 
-    // 예상 금액 (이번 달 미발생 시 표시용): 직전 발생 월의 합계, 없으면 평균
+    // 고정비 금액: 이전 달 기준 (이번 달 불완전한 금액 제외)
+    const fixedAmount = allSame ? activeAmounts[0] : Math.round(avg);
+
+    // 예상 금액 (이번 달 미발생 시 표시용)
     const expectedAmount = activeAmounts.length > 0
       ? activeAmounts[0]
       : Math.round(avg);
@@ -373,7 +380,7 @@ export async function analyzeFixedCosts(
       categoryName: data.categoryName,
       categoryGroup: data.categoryGroup,
       categoryIcon: data.categoryIcon,
-      amount: allSame ? activeAmounts[0] : Math.round(avg),
+      amount: fixedAmount,
       isFixed: allSame,
       monthlyAmounts,
       evidence,
