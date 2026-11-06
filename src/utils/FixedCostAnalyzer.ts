@@ -81,7 +81,7 @@ const DESCRIPTION_BLACKLIST = [
 const MIN_AMOUNT = 1000;
 
 /** 변동계수(CV) 상한 — 초과 시 고정비 아님 (모든 카테고리 동일) */
-const MAX_CV = 0.15;
+const MAX_CV = 0.30;
 
 /** description 유사도 임계값 (이상이면 같은 항목으로 병합) */
 const SIMILARITY_THRESHOLD = 0.7;
