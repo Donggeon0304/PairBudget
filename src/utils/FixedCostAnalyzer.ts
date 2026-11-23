@@ -392,9 +392,129 @@ export async function analyzeFixedCosts(
     });
   });
 
-  // ── 8. pin 항목 중 거래 데이터에 없는 것 처리 ──
-  // (이미 위에서 descMap에 키가 있으면 처리됨.
-  //  descMap에 키가 없는 pin은 해당 기간에 거래가 없으므로 표시할 데이터 없음 → 무시)
+  // ── 8. 카테고리 단위 추가 감지 ──
+  // description 기반으로 고정비에 잡히지 않은 "나머지" 거래를 카테고리별로 묶어서 추가 감지
+  // (점심처럼 가맹점이 매번 달라도 카테고리 합계가 매달 비슷하면 고정비로 잡기 위함)
+
+  const fixedDescKeys = new Set<string>();
+  // 고정비로 잡힌 description key 수집 (병합된 것 포함)
+  Object.keys(descMap).forEach(key => {
+    if (fixedCosts.some(fc => fc.preferenceKey === key)) {
+      fixedDescKeys.add(key);
+    }
+  });
+
+  // 카테고리별 나머지 거래 집계
+  const catMap: Record<string, {
+    categoryName: string;
+    categoryGroup: string;
+    categoryIcon: string;
+    monthly: { amounts: number[]; transactions: FixedCostTransaction[] }[];
+  }> = {};
+
+  filteredTx.forEach(tx => {
+    if (!tx.description || !tx.categoryName) return;
+
+    const monthIdx = monthRanges.findIndex(({ start, end }) =>
+      tx.date >= start && tx.date <= end,
+    );
+    if (monthIdx < 0) return;
+
+    const normalizedDesc = normalizeDescription(tx.description);
+    if (isBlacklistedDescription(normalizedDesc)) return;
+
+    // 이미 description 기반으로 고정비에 잡힌 거래는 제외
+    const descKey = makeFixedCostKey(normalizedDesc, tx.categoryGroup, tx.categoryName);
+    if (fixedDescKeys.has(descKey)) return;
+
+    // 제외 카테고리 체크
+    const isExcluded = excludeCategories.some(ec =>
+      ec.name
+        ? tx.categoryGroup === ec.group && tx.categoryName === ec.name
+        : tx.categoryGroup === ec.group,
+    );
+    if (isExcluded) return;
+
+    const catKey = `${tx.categoryGroup}__${tx.categoryName}`;
+    if (!catMap[catKey]) {
+      catMap[catKey] = {
+        categoryName: tx.categoryName,
+        categoryGroup: tx.categoryGroup,
+        categoryIcon: tx.categoryIcon,
+        monthly: months.map(() => ({ amounts: [], transactions: [] })),
+      };
+    }
+
+    catMap[catKey].monthly[monthIdx].amounts.push(tx.amount);
+    catMap[catKey].monthly[monthIdx].transactions.push({
+      date: tx.date,
+      amount: tx.amount,
+      description: tx.description,
+    });
+  });
+
+  // 카테고리별 CV 계산 & 고정비 추가
+  Object.entries(catMap).forEach(([catKey, catData]) => {
+    // 최소 2개월 발생
+    const catMonthsPresent = catData.monthly.filter(m => m.amounts.length > 0).length;
+    if (catMonthsPresent < 2) return;
+
+    // CV 계산 (현재 월 제외)
+    const cvCatData = isCurrentMonthActual
+      ? catData.monthly.slice(1)
+      : catData.monthly;
+    const catActiveAmounts = cvCatData
+      .filter(m => m.amounts.length > 0)
+      .map(m => m.amounts.reduce((s, a) => s + a, 0));
+
+    if (catActiveAmounts.length < 1) return;
+
+    const catAvg = catActiveAmounts.reduce((s, a) => s + a, 0) / catActiveAmounts.length;
+    if (catAvg < MIN_AMOUNT) return;
+
+    if (catActiveAmounts.length >= 2) {
+      const catVariance = catActiveAmounts.reduce((s, a) => s + Math.pow(a - catAvg, 2), 0) / catActiveAmounts.length;
+      const catCv = catAvg > 0 ? Math.sqrt(catVariance) / catAvg : 1;
+      if (catCv > MAX_CV) return;
+    }
+
+    // preferenceKey: 카테고리 기반 키
+    const catPrefKey = makeFixedCostKey('__category__', catData.categoryGroup, catData.categoryName);
+
+    // dismiss 체크
+    const catPref = preferences[catPrefKey];
+    if (catPref?.action === 'dismiss') return;
+
+    const catMonthlyAmounts = catData.monthly.map(m =>
+      m.amounts.reduce((s, a) => s + a, 0),
+    );
+    const catAllSame = catActiveAmounts.length > 0 && catActiveAmounts.every(a => a === catActiveAmounts[0]);
+    const catFixedAmount = catAllSame ? catActiveAmounts[0] : Math.round(catAvg);
+    const catExpectedAmount = catActiveAmounts.length > 0 ? catActiveAmounts[0] : Math.round(catAvg);
+
+    const catEvidence = catData.monthly.map((m, idx) => ({
+      monthLabel: monthLabels[idx],
+      transactions: m.transactions.sort((a, b) => a.date.getTime() - b.date.getTime()),
+    }));
+
+    const isPinned = catPref?.action === 'pin';
+
+    fixedCosts.push({
+      description: `${catData.categoryName} 외`,
+      categoryName: catData.categoryName,
+      categoryGroup: catData.categoryGroup,
+      categoryIcon: catData.categoryIcon,
+      amount: catFixedAmount,
+      isFixed: catAllSame,
+      monthlyAmounts: catMonthlyAmounts,
+      evidence: catEvidence,
+      source: isPinned ? 'pinned' : 'auto',
+      preferenceKey: catPrefKey,
+      isPending: false,
+      expectedAmount: catExpectedAmount,
+      expectedDay: undefined,
+    });
+  });
 
   fixedCosts.sort((a, b) => b.amount - a.amount);
   return fixedCosts;

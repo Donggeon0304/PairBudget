@@ -1048,7 +1048,7 @@ const PendingTransactionsScreen: React.FC<{ navigation: any }> = ({ navigation }
               )}
             </View>
             {sortedTransactions.length > 0 && (
-              <View style={{ flexDirection: 'row', gap: 8 }}>
+              <View style={{ flexDirection: 'row', gap: 8, paddingHorizontal: Spacing.md }}>
                 {selectedIds.size > 0 ? (
                   /* 선택된 항목이 있을 때 */
                   <>
@@ -1153,32 +1153,6 @@ const PendingTransactionsScreen: React.FC<{ navigation: any }> = ({ navigation }
                   </>
                 )}
               </View>
-            )}
-            {sortedTransactions.length === 0 && (
-              <TouchableOpacity
-                style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 6,
-                  paddingVertical: 12,
-                  borderRadius: BorderRadius.md,
-                  backgroundColor: Colors.Primary + '10',
-                  borderWidth: 1,
-                  borderColor: Colors.Primary + '25',
-                }}
-                onPress={() => setShowScrapeModal(true)}
-                disabled={isScraping}
-              >
-                {isScraping ? (
-                  <ActivityIndicator size="small" color={Colors.Primary} />
-                ) : (
-                  <Icon name="download-outline" size={18} color={Colors.Primary} />
-                )}
-                <Text style={{ color: Colors.Primary, fontWeight: '600', fontSize: 14 }}>
-                  {isScraping ? '알림 스캔 중...' : '알림 가져오기'}
-                </Text>
-              </TouchableOpacity>
             )}
           </View>
         }
