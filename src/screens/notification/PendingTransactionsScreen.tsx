@@ -61,6 +61,8 @@ const PendingTransactionsScreen: React.FC<{ navigation: any }> = ({ navigation }
   const [editModalItem, setEditModalItem] = useState<PendingTransaction | null>(null);
   const [editAmount, setEditAmount] = useState('');
   const [editDescription, setEditDescription] = useState('');
+  const [amountSelection, setAmountSelection] = useState<{ start: number; end: number } | undefined>(undefined);
+  const amountInputRef = useRef<TextInput>(null);
 
   // 편집 결과 저장 (모달 닫힌 후에도 유지)
   const [editedValues, setEditedValues] = useState<Record<string, { amount?: number; description?: string }>>({});
@@ -249,6 +251,13 @@ const PendingTransactionsScreen: React.FC<{ navigation: any }> = ({ navigation }
     const dateB = b.receivedAt instanceof Date ? b.receivedAt.getTime() : new Date(b.receivedAt).getTime();
     return dateB - dateA;
   });
+
+  // 항목이 모두 사라지면 스크롤을 맨 위로 (빈 상태 메시지가 보이도록)
+  useEffect(() => {
+    if (pendingTransactions.length === 0) {
+      flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
+    }
+  }, [pendingTransactions.length]);
 
   /** 공동 여부 결정 */
   const getIsCouple = (item: PendingTransaction): boolean => {
@@ -1107,13 +1116,14 @@ const PendingTransactionsScreen: React.FC<{ navigation: any }> = ({ navigation }
                     <TouchableOpacity
                       style={{
                         paddingHorizontal: 14,
-                        paddingVertical: 12,
                         borderRadius: BorderRadius.md,
                         backgroundColor: Colors.Danger + '10',
                         borderWidth: 1,
                         borderColor: Colors.Danger + '25',
                         alignItems: 'center',
                         justifyContent: 'center',
+                        height: 44,
+                        width: 44,
                       }}
                       onPress={handleRejectAll}
                     >
@@ -1122,13 +1132,14 @@ const PendingTransactionsScreen: React.FC<{ navigation: any }> = ({ navigation }
                     <TouchableOpacity
                       style={{
                         paddingHorizontal: 14,
-                        paddingVertical: 12,
                         borderRadius: BorderRadius.md,
                         backgroundColor: Colors.Surface,
                         borderWidth: 1,
                         borderColor: Colors.Primary + '30',
                         alignItems: 'center',
                         justifyContent: 'center',
+                        height: 44,
+                        width: 44,
                       }}
                       onPress={() => setShowScrapeModal(true)}
                       disabled={isScraping}
@@ -1258,13 +1269,25 @@ const PendingTransactionsScreen: React.FC<{ navigation: any }> = ({ navigation }
 
                 <Text style={styles.editModalLabel}>금액</Text>
                 <TextInput
+                  ref={amountInputRef}
                   style={styles.editModalInput}
                   value={editAmount}
-                  onChangeText={setEditAmount}
+                  onChangeText={(text) => {
+                    setAmountSelection(undefined);
+                    setEditAmount(text);
+                  }}
+                  onFocus={() => {
+                    setTimeout(() => {
+                      amountInputRef.current?.setNativeProps({
+                        selection: { start: 0, end: editAmount.length },
+                      });
+                      setAmountSelection({ start: 0, end: editAmount.length });
+                    }, 50);
+                  }}
+                  selection={amountSelection}
                   keyboardType="numeric"
                   placeholder="금액 입력"
                   placeholderTextColor={Colors.TextMuted}
-                  selectTextOnFocus
                 />
 
                 <Text style={styles.editModalLabel}>설명 (제목)</Text>
@@ -1427,7 +1450,8 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.md,
     backgroundColor: 'rgba(46, 204, 113, 0.12)',
     borderRadius: BorderRadius.md,
-    paddingVertical: 12,
+    height: 44,
+    justifyContent: 'center',
     alignItems: 'center',
   },
   approveAllText: {
@@ -1437,7 +1461,7 @@ const styles = StyleSheet.create({
   },
   list: {
     paddingHorizontal: Spacing.md,
-    paddingBottom: 24,
+    paddingBottom: 100,
   },
   transactionCard: {
     marginBottom: Spacing.md,

@@ -85,3 +85,5 @@ gemini_recovered*
 # Firebase / secrets
 google-services.json
 android/app/pairbudget-release.keystore
+deploy.ps1
+git_commit.bat
