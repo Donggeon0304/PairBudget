@@ -122,6 +122,7 @@ const DashboardScreen: React.FC = () => {
   const [fiscalSheetVisible, setFiscalSheetVisible] = useState(false);
   const [fixedCosts, setFixedCosts] = useState<FixedCostItem[]>([]);
   const [fixedCostExpanded, setFixedCostExpanded] = useState(false);
+  const [expandedFixedCategories, setExpandedFixedCategories] = useState<Set<string>>(new Set());
   const [fixedCostDetail, setFixedCostDetail] = useState<FixedCostItem | null>(null);
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(30)).current;
@@ -491,7 +492,22 @@ const DashboardScreen: React.FC = () => {
         )}
 
         {/* ─── 고정비 카드 (공동 모드에서는 숨김) ─── */}
-        {viewMode !== 'couple' && fixedCosts.length > 0 && (
+        {viewMode !== 'couple' && fixedCosts.length > 0 && (() => {
+          // 카테고리별 그룹핑
+          const grouped = fixedCosts.reduce<Record<string, FixedCostItem[]>>((acc, item) => {
+            const key = item.categoryName;
+            if (!acc[key]) acc[key] = [];
+            acc[key].push(item);
+            return acc;
+          }, {});
+          const categoryKeys = Object.keys(grouped).sort((a, b) => {
+            const sumA = grouped[a].reduce((s, c) => s + (c.isPending ? c.expectedAmount : c.amount), 0);
+            const sumB = grouped[b].reduce((s, c) => s + (c.isPending ? c.expectedAmount : c.amount), 0);
+            return sumB - sumA;
+          });
+          const displayKeys = fixedCostExpanded ? categoryKeys : categoryKeys.slice(0, 3);
+
+          return (
           <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
             <GlassCard style={styles.chartCard}>
               <TouchableOpacity
@@ -512,83 +528,164 @@ const DashboardScreen: React.FC = () => {
                   color={Colors.TextMuted}
                 />
               </TouchableOpacity>
-              {(fixedCostExpanded ? fixedCosts : fixedCosts.slice(0, 3)).map((item, i) => (
-                <TouchableOpacity
-                  key={`fc-${i}`}
-                  style={[styles.fixedCostRow, item.isPending && { opacity: 0.55 }]}
-                  activeOpacity={0.6}
-                  onPress={() => setFixedCostDetail(item)}
-                  onLongPress={() => {
-                    const actionLabel = item.source === 'pinned' ? '고정비 등록 해제' : '고정비에서 제외';
-                    showAlert({
-                      title: item.description,
-                      message: `"${item.description}" (${item.categoryName})을(를) ${actionLabel}하시겠습니까?`,
-                      icon: 'warning',
-                      buttons: [
-                        { text: '취소', style: 'cancel' },
-                        {
-                          text: actionLabel,
-                          style: 'destructive',
-                          onPress: async () => {
-                            try {
-                              if (item.source === 'pinned') {
-                                await restoreFixedCost(user!.householdId!, item.preferenceKey);
-                              } else {
-                                await dismissFixedCost(user!.householdId!, {
-                                  key: item.preferenceKey,
-                                  displayName: item.description,
-                                  categoryGroup: item.categoryGroup,
-                                  categoryName: item.categoryName,
-                                  categoryIcon: item.categoryIcon,
-                                });
-                              }
-                              loadFixedCosts();
-                            } catch {
-                              showAlert({ title: '오류', message: '처리 중 문제가 발생했습니다.' });
-                            }
-                          },
-                        },
-                      ],
-                    });
-                  }}
-                >
-                  <View style={styles.categoryLeft}>
-                    <CategoryIcon icon={item.categoryIcon} categoryName={item.categoryName} size={16} color={item.isPending ? Colors.TextMuted : Colors.TextSecondary} style={styles.categoryIcon} />
-                    <View style={{flex: 1}}>
-                      <View style={{flexDirection: 'row', alignItems: 'center', gap: 4}}>
-                        {item.source === 'pinned' && (
-                          <Icon name="pin" size={12} color={Colors.Primary} />
-                        )}
-                        <Text style={[styles.categoryName, item.isPending && { color: Colors.TextMuted }]} numberOfLines={1}>{item.description}</Text>
+              {displayKeys.map((catName) => {
+                const items = grouped[catName];
+                const catTotal = items.reduce((s, c) => s + (c.isPending ? c.expectedAmount : c.amount), 0);
+                const isExpanded = expandedFixedCategories.has(catName);
+                const firstItem = items[0];
+                const hasPinned = items.some(it => it.source === 'pinned');
+
+                return (
+                  <View key={`fc-cat-${catName}`}>
+                    {/* 카테고리 헤더 (접기/펼치기) */}
+                    <TouchableOpacity
+                      style={[styles.fixedCostRow, { paddingVertical: 8 }]}
+                      activeOpacity={0.6}
+                      onPress={() => {
+                        setExpandedFixedCategories(prev => {
+                          const next = new Set(prev);
+                          if (next.has(catName)) next.delete(catName);
+                          else next.add(catName);
+                          return next;
+                        });
+                      }}
+                      onLongPress={() => {
+                        showAlert({
+                          title: catName,
+                          message: `"${catName}" 카테고리의 고정비 ${items.length}건을 모두 제외하시겠습니까?`,
+                          icon: 'warning',
+                          buttons: [
+                            { text: '취소', style: 'cancel' },
+                            {
+                              text: '전체 제외',
+                              style: 'destructive',
+                              onPress: async () => {
+                                try {
+                                  for (const item of items) {
+                                    if (item.source === 'pinned') {
+                                      await restoreFixedCost(user!.householdId!, item.preferenceKey);
+                                    } else {
+                                      await dismissFixedCost(user!.householdId!, {
+                                        key: item.preferenceKey,
+                                        displayName: item.description,
+                                        categoryGroup: item.categoryGroup,
+                                        categoryName: item.categoryName,
+                                        categoryIcon: item.categoryIcon,
+                                      });
+                                    }
+                                  }
+                                  loadFixedCosts();
+                                } catch {
+                                  showAlert({ title: '오류', message: '처리 중 문제가 발생했습니다.' });
+                                }
+                              },
+                            },
+                          ],
+                        });
+                      }}
+                    >
+                      <View style={styles.categoryLeft}>
+                        <CategoryIcon icon={firstItem.categoryIcon} categoryName={catName} size={16} color={Colors.TextSecondary} style={styles.categoryIcon} />
+                        <View style={{flex: 1}}>
+                          <View style={{flexDirection: 'row', alignItems: 'center', gap: 4}}>
+                            {hasPinned && (
+                              <Icon name="pin" size={12} color={Colors.Primary} />
+                            )}
+                            <Text style={styles.categoryName} numberOfLines={1}>{catName}</Text>
+                            <Text style={{fontSize: 11, color: Colors.TextMuted}}>({items.length}건)</Text>
+                          </View>
+                        </View>
                       </View>
-                      <Text style={styles.fixedCostCategory} numberOfLines={1}>
-                        {item.categoryName}
-                        {item.isPending && item.expectedDay ? `  ·  약 ${item.expectedDay}일` : ''}
-                      </Text>
-                    </View>
+                      <View style={styles.fixedCostRight}>
+                        <Text style={styles.categoryAmount}>
+                          {formatCurrency(catTotal)}
+                        </Text>
+                        <Icon
+                          name={isExpanded ? 'chevron-up' : 'chevron-down'}
+                          size={14}
+                          color={Colors.TextMuted}
+                        />
+                      </View>
+                    </TouchableOpacity>
+
+                    {/* 개별 항목 (펼쳐졌을 때) */}
+                    {isExpanded && items.map((item, i) => (
+                      <TouchableOpacity
+                        key={`fc-item-${i}`}
+                        style={[styles.fixedCostRow, { paddingLeft: 36, paddingVertical: 5, borderTopColor: Colors.Divider + '60' }, item.isPending && { opacity: 0.55 }]}
+                        activeOpacity={0.6}
+                        onPress={() => setFixedCostDetail(item)}
+                        onLongPress={() => {
+                          const actionLabel = item.source === 'pinned' ? '고정비 등록 해제' : '고정비에서 제외';
+                          showAlert({
+                            title: item.description,
+                            message: `"${item.description}"을(를) ${actionLabel}하시겠습니까?`,
+                            icon: 'warning',
+                            buttons: [
+                              { text: '취소', style: 'cancel' },
+                              {
+                                text: actionLabel,
+                                style: 'destructive',
+                                onPress: async () => {
+                                  try {
+                                    if (item.source === 'pinned') {
+                                      await restoreFixedCost(user!.householdId!, item.preferenceKey);
+                                    } else {
+                                      await dismissFixedCost(user!.householdId!, {
+                                        key: item.preferenceKey,
+                                        displayName: item.description,
+                                        categoryGroup: item.categoryGroup,
+                                        categoryName: item.categoryName,
+                                        categoryIcon: item.categoryIcon,
+                                      });
+                                    }
+                                    loadFixedCosts();
+                                  } catch {
+                                    showAlert({ title: '오류', message: '처리 중 문제가 발생했습니다.' });
+                                  }
+                                },
+                              },
+                            ],
+                          });
+                        }}
+                      >
+                        <View style={{flex: 1}}>
+                          <View style={{flexDirection: 'row', alignItems: 'center', gap: 4}}>
+                            {item.source === 'pinned' && (
+                              <Icon name="pin" size={10} color={Colors.Primary} />
+                            )}
+                            <Text style={[{fontSize: 13, color: Colors.Text}, item.isPending && { color: Colors.TextMuted }]} numberOfLines={1}>{item.description}</Text>
+                          </View>
+                          {item.isPending && item.expectedDay ? (
+                            <Text style={{fontSize: 10, color: Colors.TextMuted, marginTop: 1}}>약 {item.expectedDay}일</Text>
+                          ) : null}
+                        </View>
+                        <View style={styles.fixedCostRight}>
+                          <Text style={[{fontSize: 13, fontWeight: '600' as const, color: Colors.Text}, item.isPending && { color: Colors.TextMuted }]}>
+                            {item.isPending ? '~' : (item.isFixed ? '' : '~')}{formatCurrency(item.isPending ? item.expectedAmount : item.amount)}
+                          </Text>
+                          <Text style={[styles.fixedCostBadge, {
+                            color: item.isPending
+                              ? '#F59E0B'
+                              : item.isFixed ? Colors.Primary : Colors.TextMuted,
+                          }]}>
+                            {item.isPending ? '예정' : (item.isFixed ? '고정' : '변동')}
+                          </Text>
+                        </View>
+                      </TouchableOpacity>
+                    ))}
                   </View>
-                  <View style={styles.fixedCostRight}>
-                    <Text style={[styles.categoryAmount, item.isPending && { color: Colors.TextMuted }]}>
-                      {item.isPending ? '~' : (item.isFixed ? '' : '~')}{formatCurrency(item.isPending ? item.expectedAmount : item.amount)}
-                    </Text>
-                    <Text style={[styles.fixedCostBadge, {
-                      color: item.isPending
-                        ? '#F59E0B'
-                        : item.isFixed ? Colors.Primary : Colors.TextMuted,
-                    }]}>
-                      {item.isPending ? '예정' : (item.isFixed ? '고정' : '변동')}
-                    </Text>
-                  </View>
-                </TouchableOpacity>
-              ))}
-              {!fixedCostExpanded && fixedCosts.length > 3 && (
+                );
+              })}
+              {!fixedCostExpanded && categoryKeys.length > 3 && (
                 <TouchableOpacity onPress={() => setFixedCostExpanded(true)} style={styles.fixedCostMore}>
-                  <Text style={styles.fixedCostMoreText}>+{fixedCosts.length - 3}개 더보기</Text>
+                  <Text style={styles.fixedCostMoreText}>+{categoryKeys.length - 3}개 카테고리 더보기</Text>
                 </TouchableOpacity>
               )}
             </GlassCard>
           </Animated.View>
-        )}
+          );
+        })()}
 
         {sortedCats.length > 0 ? (
           <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
