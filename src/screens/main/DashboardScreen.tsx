@@ -916,7 +916,7 @@ const DashboardScreen: React.FC = () => {
                   )}
                 </View>
 
-                <ScrollView style={{ maxHeight: 360 }} showsVerticalScrollIndicator={true}>
+                <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={true} nestedScrollEnabled={true}>
                   {fixedCostDetail.evidence.map((ev, idx) => (
                     <View key={`ev-${idx}`} style={styles.fixedDetailMonth}>
                       <View style={styles.fixedDetailMonthHeader}>
@@ -1203,6 +1203,8 @@ const styles = StyleSheet.create({
     padding: Spacing.lg,
     width: '100%',
     maxHeight: '80%',
+    flexShrink: 1,
+    overflow: 'hidden',
   },
   fixedDetailHeader: {
     flexDirection: 'row' as const,

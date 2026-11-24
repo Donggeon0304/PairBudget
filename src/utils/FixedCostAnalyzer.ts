@@ -412,12 +412,13 @@ export async function analyzeFixedCosts(
     }
   });
 
-  // 카테고리별 나머지 거래 집계
+  // 카테고리별 전체 거래 집계 (CV 판단용) + 나머지 거래 집계 (evidence 표시용)
   const catMap: Record<string, {
     categoryName: string;
     categoryGroup: string;
     categoryIcon: string;
-    monthly: { amounts: number[]; transactions: FixedCostTransaction[] }[];
+    monthlyTotal: { amounts: number[] }[];  // 카테고리 전체 (CV 계산용)
+    monthly: { amounts: number[]; transactions: FixedCostTransaction[] }[];  // 나머지만 (evidence용)
   }> = {};
 
   filteredTx.forEach(tx => {
@@ -430,10 +431,6 @@ export async function analyzeFixedCosts(
 
     const normalizedDesc = normalizeDescription(tx.description);
     if (isBlacklistedDescription(normalizedDesc)) return;
-
-    // 이미 description 기반으로 고정비에 잡힌 거래는 제외
-    const descKey = makeFixedCostKey(normalizedDesc, tx.categoryGroup, tx.categoryName);
-    if (fixedDescKeys.has(descKey)) return;
 
     // 제외 카테고리 체크
     const isExcluded = excludeCategories.some(ec =>
@@ -449,24 +446,32 @@ export async function analyzeFixedCosts(
         categoryName: tx.categoryName,
         categoryGroup: tx.categoryGroup,
         categoryIcon: tx.categoryIcon,
+        monthlyTotal: months.map(() => ({ amounts: [] })),
         monthly: months.map(() => ({ amounts: [], transactions: [] })),
       };
     }
 
-    catMap[catKey].monthly[monthIdx].amounts.push(tx.amount);
-    catMap[catKey].monthly[monthIdx].transactions.push({
-      date: tx.date,
-      amount: tx.amount,
-      description: tx.description,
-    });
+    // 전체 합계에는 항상 포함 (CV 판단용)
+    catMap[catKey].monthlyTotal[monthIdx].amounts.push(tx.amount);
+
+    // description 기반 고정비에 잡힌 거래는 evidence에서만 제외
+    const descKey = makeFixedCostKey(normalizedDesc, tx.categoryGroup, tx.categoryName);
+    if (!fixedDescKeys.has(descKey)) {
+      catMap[catKey].monthly[monthIdx].amounts.push(tx.amount);
+      catMap[catKey].monthly[monthIdx].transactions.push({
+        date: tx.date,
+        amount: tx.amount,
+        description: tx.description,
+      });
+    }
   });
 
   // 카테고리별 CV 계산 & 고정비 추가
   Object.entries(catMap).forEach(([catKey, catData]) => {
-    // 최소 연속 2개월 발생 필수 (퐁당퐁당 제외)
-    const hasCatM0 = catData.monthly[0].amounts.length > 0;
-    const hasCatM1 = catData.monthly[1].amounts.length > 0;
-    const hasCatM2 = catData.monthly[2].amounts.length > 0;
+    // 최소 연속 2개월 발생 필수 (퐁당퐁당 제외) — 카테고리 전체 기준
+    const hasCatM0 = catData.monthlyTotal[0].amounts.length > 0;
+    const hasCatM1 = catData.monthlyTotal[1].amounts.length > 0;
+    const hasCatM2 = catData.monthlyTotal[2].amounts.length > 0;
 
     if (hasCatM0) {
       if (!hasCatM1) return; // 이번 달 발생 시 직전 달에도 반드시 발생했어야 인정
@@ -475,10 +480,10 @@ export async function analyzeFixedCosts(
       if (!hasCatM1 || !hasCatM2) return; // 이번 달 미발생 시 직전 2개월 연속 발생해야 인정
     }
 
-    // CV 계산 (현재 월 제외)
+    // CV 계산 — 카테고리 전체 합계 기준 (개별 맛집 고정비 분리 여부에 무관하게 카테고리 총합의 안정성 판단)
     const cvCatData = isCurrentMonthActual
-      ? catData.monthly.slice(1)
-      : catData.monthly;
+      ? catData.monthlyTotal.slice(1)
+      : catData.monthlyTotal;
     const catActiveAmounts = cvCatData
       .filter(m => m.amounts.length > 0)
       .map(m => m.amounts.reduce((s, a) => s + a, 0));
@@ -494,6 +499,10 @@ export async function analyzeFixedCosts(
       if (catCv > MAX_CV) return;
     }
 
+    // 나머지 거래가 하나도 없으면 (전부 description 기반으로 잡힘) 카테고리 항목 불필요
+    const hasRemainder = catData.monthly.some(m => m.transactions.length > 0);
+    if (!hasRemainder) return;
+
     // preferenceKey: 카테고리 기반 키
     const catPrefKey = makeFixedCostKey('__category__', catData.categoryGroup, catData.categoryName);
 
@@ -501,12 +510,16 @@ export async function analyzeFixedCosts(
     const catPref = preferences[catPrefKey];
     if (catPref?.action === 'dismiss') return;
 
+    // 금액은 나머지 거래 기준
     const catMonthlyAmounts = catData.monthly.map(m =>
       m.amounts.reduce((s, a) => s + a, 0),
     );
-    const catAllSame = catActiveAmounts.length > 0 && catActiveAmounts.every(a => a === catActiveAmounts[0]);
-    const catFixedAmount = catAllSame ? catActiveAmounts[0] : Math.round(catAvg);
-    const catExpectedAmount = catActiveAmounts.length > 0 ? catActiveAmounts[0] : Math.round(catAvg);
+    const remainderActiveAmounts = catMonthlyAmounts.filter(a => a > 0);
+    const remainderAvg = remainderActiveAmounts.length > 0
+      ? remainderActiveAmounts.reduce((s, a) => s + a, 0) / remainderActiveAmounts.length : 0;
+    const catAllSame = remainderActiveAmounts.length > 0 && remainderActiveAmounts.every(a => a === remainderActiveAmounts[0]);
+    const catFixedAmount = catAllSame ? remainderActiveAmounts[0] : Math.round(remainderAvg);
+    const catExpectedAmount = remainderActiveAmounts.length > 0 ? remainderActiveAmounts[0] : Math.round(remainderAvg);
 
     const catEvidence = catData.monthly.map((m, idx) => ({
       monthLabel: monthLabels[idx],

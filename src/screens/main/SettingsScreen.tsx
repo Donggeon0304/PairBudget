@@ -1272,7 +1272,7 @@ const SettingsScreen: React.FC = () => {
                                 color: Colors.Text,
                                 paddingVertical: 4,
                               }}
-                              placeholder="카드/계좌 끝 4자리 (선택 - 개인/공동 구분용)"
+                              placeholder="끝 4자리 (선택)"
                               placeholderTextColor={Colors.TextMuted}
                               value={item.keyword}
                               onChangeText={val => handleUpdateBankKeyword(item.id, val)}
@@ -1405,7 +1405,7 @@ const SettingsScreen: React.FC = () => {
                 onPress={handleSaveCoupleBanks}
               >
                 <Text style={styles.modalConfirmText}>
-                  저장 {coupleAccountItems.length > 0 ? `(${coupleAccountItems.length})` : ''}
+                  저장
                 </Text>
               </TouchableOpacity>
             </View>

@@ -255,7 +255,10 @@ const PendingTransactionsScreen: React.FC<{ navigation: any }> = ({ navigation }
   // 항목이 모두 사라지면 스크롤을 맨 위로 (빈 상태 메시지가 보이도록)
   useEffect(() => {
     if (pendingTransactions.length === 0) {
-      flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
+      // 레이아웃 업데이트 후 스크롤 (타이밍 이슈 방지)
+      setTimeout(() => {
+        flatListRef.current?.scrollToOffset({ offset: 0, animated: false });
+      }, 100);
     }
   }, [pendingTransactions.length]);
 
