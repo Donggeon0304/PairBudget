@@ -4,6 +4,7 @@ import {
   Text,
   StyleSheet,
   FlatList,
+  ScrollView,
   TouchableOpacity,
   Animated,
   StatusBar,
@@ -15,6 +16,7 @@ import {
   RefreshControl,
   AppState,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import firestore from '@react-native-firebase/firestore';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { Colors } from '../../theme/colors';
@@ -25,7 +27,7 @@ import ScrollToTopButton from '../../components/ScrollToTopButton';
 import { useAlert } from '../../components/CustomAlert';
 import { formatCurrency } from '../../utils/formatCurrency';
 import { useAuth } from '../../contexts/AuthContext';
-import { getPendingTransactions, removePendingTransaction, getCoupleAccountBanks, learnCategoryMapping, addRejectedHash, addApprovedTransaction } from '../../services/NotificationService';
+import { getPendingTransactions, removePendingTransaction, getCoupleAccountBanks, learnCategoryMapping, addRejectedHash, addApprovedTransaction, addPendingTransactions } from '../../services/NotificationService';
 import { getLearnedMapping, initCategoryMapper, autoMapCategory } from '../../services/CategoryAutoMapper';
 import { generateTransactionHash, getBrandName } from '../../services/BankNotificationParser';
 import { useHousehold } from '../../contexts/HouseholdContext';
@@ -37,6 +39,8 @@ import { scrapeSmsTransactions } from '../../services/SmsScrapingService';
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 const PendingTransactionsScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
+  const insets = useSafeAreaInsets();
+  const bottomInset = Math.max(insets.bottom, 16);
   const { user } = useAuth();
   const { household, categories: householdCategories } = useHousehold();
   const { showAlert } = useAlert();
@@ -47,6 +51,13 @@ const PendingTransactionsScreen: React.FC<{ navigation: any }> = ({ navigation }
   const [coupleBanks, setCoupleBanks] = useState<string[]>([]);
   const flatListRef = useRef<FlatList>(null);
   const [scrollY, setScrollY] = useState(0);
+
+  // 내역이 모두 사라졌을 때 스크롤 위치 초기화
+  useEffect(() => {
+    if (pendingTransactions.length === 0) {
+      setScrollY(0);
+    }
+  }, [pendingTransactions.length]);
 
   // 공동/개인 수동 오버라이드
   const [coupleOverride, setCoupleOverride] = useState<Record<string, boolean>>({});
@@ -73,6 +84,7 @@ const PendingTransactionsScreen: React.FC<{ navigation: any }> = ({ navigation }
   // 알림 가져오기 상태
   const [isScraping, setIsScraping] = useState(false);
   const [showScrapeModal, setShowScrapeModal] = useState(false);
+  const [includeRejected, setIncludeRejected] = useState(true);
 
   // 선택 제외용
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -817,7 +829,7 @@ const PendingTransactionsScreen: React.FC<{ navigation: any }> = ({ navigation }
     setShowScrapeModal(false);
     setIsScraping(true);
     try {
-      const result = await scrapeSmsTransactions(daysBack, user.householdId);
+      const result = await scrapeSmsTransactions(daysBack, user.householdId, includeRejected);
       const { items: scraped, debug } = result;
 
       if (scraped.length === 0) {
@@ -831,7 +843,7 @@ const PendingTransactionsScreen: React.FC<{ navigation: any }> = ({ navigation }
             ? `최근 ${daysBack}일 내 알림이 없습니다.`
             : debug.parsedCount === 0
               ? `${scannedInfo}을 스캔했지만 금융 알림이 없습니다.`
-              : `${scannedInfo} 스캔 완료.\n${debug.parsedCount}건이 모두 이미 등록되었거나 제외된 내역입니다 ✅`,
+              : `${scannedInfo} 스캔 완료.\n${debug.parsedCount}건이 모두 이미 등록된 내역입니다 ✅`,
           icon: debug.totalSms === 0 && (debug as any).pushCount === 0 ? 'warning' : 'success',
           buttons: [{ text: '확인' }],
         });
@@ -872,7 +884,14 @@ const PendingTransactionsScreen: React.FC<{ navigation: any }> = ({ navigation }
         ? `(문자 ${smsCount}건 + 앱 알림 ${pushCountResult}건)`
         : '';
 
-      setPendingTransactions(prev => [...newPending, ...prev]);
+      // 로컬 스토리지 및 화면 state에 저장
+      await addPendingTransactions(newPending);
+      setPendingTransactions(prev => {
+        const existingIds = new Set(prev.map(t => t.id));
+        const filteredNew = newPending.filter(t => !existingIds.has(t.id));
+        return [...filteredNew, ...prev];
+      });
+
       showAlert({
         title: '알림 스캔 완료 📨',
         message: `미등록 거래 ${scraped.length}건을 찾았습니다. ${sourceDetail}\n확인 후 등록해주세요!`,
@@ -1031,187 +1050,221 @@ const PendingTransactionsScreen: React.FC<{ navigation: any }> = ({ navigation }
   return (
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor={Colors.Background} />
-      <FlatList
-        ref={flatListRef}
-        data={sortedTransactions}
-        renderItem={renderItem}
-        keyExtractor={item => item.id}
-        contentContainerStyle={sortedTransactions.length === 0 ? {flex: 1} : styles.list}
-        showsVerticalScrollIndicator={false}
-        onScroll={(e) => setScrollY(e.nativeEvent.contentOffset.y)}
-        scrollEventThrottle={100}
-        ListHeaderComponent={
-          <View>
-            <View style={styles.header}>
-              <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButtonContainer}>
-                <Icon name="chevron-back" size={24} color={Colors.Text} />
-              </TouchableOpacity>
-              <Text style={styles.headerTitle}>승인 대기 내역</Text>
-              {pendingTransactions.length > 0 ? (
-                <View style={styles.badgeContainer}>
-                  <Text style={styles.badgeText}>{pendingTransactions.length}</Text>
-                </View>
-              ) : (
-                <View style={{ width: 28 }} />
-              )}
-            </View>
-            {sortedTransactions.length > 0 && (
-              <View style={{ flexDirection: 'row', gap: 8, marginBottom: Spacing.md }}>
-                {selectedIds.size > 0 ? (
-                  /* 선택된 항목이 있을 때 */
-                  <>
-                    <TouchableOpacity
-                      style={{
-                        flex: 1,
-                        height: 44,
-                        borderRadius: BorderRadius.md,
-                        backgroundColor: Colors.Danger + '15',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                      }}
-                      onPress={handleRejectSelected}
-                    >
-                      <Text style={{
-                        color: Colors.Danger,
-                        fontSize: 15,
-                        fontWeight: '600',
-                      }}>
-                        선택 제외 ({selectedIds.size}개)
-                      </Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={{
-                        width: 44,
-                        height: 44,
-                        borderRadius: BorderRadius.md,
-                        backgroundColor: Colors.Surface,
-                        borderWidth: 1,
-                        borderColor: Colors.TextMuted + '30',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                      }}
-                      onPress={toggleSelectAll}
-                    >
-                      <Icon
-                        name={selectedIds.size === pendingTransactions.length ? 'checkbox' : 'square-outline'}
-                        size={20}
-                        color={selectedIds.size === pendingTransactions.length ? Colors.Primary : Colors.TextMuted}
-                      />
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={{
-                        width: 44,
-                        height: 44,
-                        borderRadius: BorderRadius.md,
-                        backgroundColor: Colors.Surface,
-                        borderWidth: 1,
-                        borderColor: Colors.TextMuted + '30',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                      }}
-                      onPress={() => setSelectedIds(new Set())}
-                    >
-                      <Icon name="close" size={20} color={Colors.TextMuted} />
-                    </TouchableOpacity>
-                  </>
-                ) : (
-                  /* 선택 없을 때 (기본) */
-                  <>
-                    <TouchableOpacity style={[styles.approveAllButton, { flex: 1 }]} onPress={handleApproveAll}>
-                      <Text style={styles.approveAllText}>
-                        전체 등록 ({pendingTransactions.length}개)
-                      </Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={{
-                        width: 44,
-                        height: 44,
-                        borderRadius: BorderRadius.md,
-                        backgroundColor: Colors.Danger + '10',
-                        borderWidth: 1,
-                        borderColor: Colors.Danger + '25',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                      }}
-                      onPress={handleRejectAll}
-                    >
-                      <Icon name="trash-outline" size={20} color={Colors.Danger} />
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={{
-                        width: 44,
-                        height: 44,
-                        borderRadius: BorderRadius.md,
-                        backgroundColor: Colors.Surface,
-                        borderWidth: 1,
-                        borderColor: Colors.Primary + '30',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                      }}
-                      onPress={() => setShowScrapeModal(true)}
-                      disabled={isScraping}
-                    >
-                      {isScraping ? (
-                        <ActivityIndicator size="small" color={Colors.Primary} />
-                      ) : (
-                        <Icon name="download-outline" size={20} color={Colors.Primary} />
-                      )}
-                    </TouchableOpacity>
-                  </>
-                )}
-              </View>
-            )}
-          </View>
-        }
-        ListEmptyComponent={
-          <View style={styles.emptyState}>
-            <Icon name="notifications-off-outline" size={64} color={Colors.TextMuted} style={styles.emptyIcon} />
-            <Text style={styles.emptyTitle}>대기 중인 내역이 없습니다</Text>
-            <Text style={styles.emptySubtitle}>
-              은행 및 카드 결제 알림이 오면{'\n'}여기에 자동으로 등록 대기 내역으로 나타납니다
-            </Text>
-            <TouchableOpacity
-              style={{
-                marginTop: Spacing.lg,
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: 6,
-                paddingHorizontal: 20,
-                paddingVertical: 12,
-                borderRadius: 24,
-                backgroundColor: Colors.Primary,
-              }}
-              onPress={() => setShowScrapeModal(true)}
-              disabled={isScraping}
-            >
-              {isScraping ? (
-                <ActivityIndicator size="small" color="#FFF" />
-              ) : (
-                <Icon name="download-outline" size={18} color="#FFF" />
-              )}
-              <Text style={{ color: '#FFF', fontWeight: '700', fontSize: 14 }}>
-                {isScraping ? '알림 스캔 중...' : '알림 가져오기'}
-              </Text>
+
+      {sortedTransactions.length === 0 ? (
+        /* ─── 내역 없음 (Clean ScrollView로 스크롤 높이 100% 원상복구) ─── */
+        <View style={{ flex: 1 }}>
+          <View style={[styles.header, { paddingTop: Math.max(insets.top + Spacing.sm, Spacing.xl) }]}>
+            <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButtonContainer}>
+              <Icon name="chevron-back" size={24} color={Colors.Text} />
             </TouchableOpacity>
+            <Text style={styles.headerTitle}>승인 대기 내역</Text>
+            <View style={{ width: 28 }} />
           </View>
-        }
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={async () => {
-              setRefreshing(true);
-              await loadPending();
-              setRefreshing(false);
-            }}
-            tintColor={Colors.Primary}
-            colors={[Colors.Primary]}
+          <ScrollView
+            contentContainerStyle={[
+              styles.emptyScrollContent,
+              { paddingBottom: bottomInset + 40 },
+            ]}
+            showsVerticalScrollIndicator={false}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={async () => {
+                  setRefreshing(true);
+                  await loadPending();
+                  setRefreshing(false);
+                }}
+                tintColor={Colors.Primary}
+                colors={[Colors.Primary]}
+              />
+            }
+          >
+            <View style={styles.emptyState}>
+              <Icon name="notifications-off-outline" size={64} color={Colors.TextMuted} style={styles.emptyIcon} />
+              <Text style={styles.emptyTitle}>대기 중인 내역이 없습니다</Text>
+              <Text style={styles.emptySubtitle}>
+                은행 및 카드 결제 알림이 오면{'\n'}여기에 자동으로 등록 대기 내역으로 나타납니다
+              </Text>
+              <TouchableOpacity
+                style={{
+                  marginTop: Spacing.lg,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 6,
+                  paddingHorizontal: 20,
+                  paddingVertical: 12,
+                  borderRadius: 24,
+                  backgroundColor: Colors.Primary,
+                }}
+                onPress={() => setShowScrapeModal(true)}
+                disabled={isScraping}
+              >
+                {isScraping ? (
+                  <ActivityIndicator size="small" color="#FFF" />
+                ) : (
+                  <Icon name="download-outline" size={18} color="#FFF" />
+                )}
+                <Text style={{ color: '#FFF', fontWeight: '700', fontSize: 14 }}>
+                  {isScraping ? '알림 스캔 중...' : '알림 가져오기'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        </View>
+      ) : (
+        /* ─── 내역 있음 (FlatList) ─── */
+        <>
+          <FlatList
+            ref={flatListRef}
+            data={sortedTransactions}
+            renderItem={renderItem}
+            keyExtractor={item => item.id}
+            contentContainerStyle={[styles.list, { paddingBottom: 100 + bottomInset }]}
+            showsVerticalScrollIndicator={false}
+            onScroll={(e) => setScrollY(e.nativeEvent.contentOffset.y)}
+            scrollEventThrottle={100}
+            ListHeaderComponent={
+              <View>
+                <View style={[styles.header, { paddingTop: Math.max(insets.top + Spacing.sm, Spacing.xl) }]}>
+                  <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButtonContainer}>
+                    <Icon name="chevron-back" size={24} color={Colors.Text} />
+                  </TouchableOpacity>
+                  <Text style={styles.headerTitle}>승인 대기 내역</Text>
+                  {pendingTransactions.length > 0 ? (
+                    <View style={styles.badgeContainer}>
+                      <Text style={styles.badgeText}>{pendingTransactions.length}</Text>
+                    </View>
+                  ) : (
+                    <View style={{ width: 28 }} />
+                  )}
+                </View>
+                <View style={{ flexDirection: 'row', gap: 8, marginBottom: Spacing.md }}>
+                  {selectedIds.size > 0 ? (
+                    /* 선택된 항목이 있을 때 */
+                    <>
+                      <TouchableOpacity
+                        style={{
+                          flex: 1,
+                          height: 44,
+                          borderRadius: BorderRadius.md,
+                          backgroundColor: Colors.Danger + '15',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                        onPress={handleRejectSelected}
+                      >
+                        <Text style={{
+                          color: Colors.Danger,
+                          fontSize: 15,
+                          fontWeight: '600',
+                        }}>
+                          선택 제외 ({selectedIds.size}개)
+                        </Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={{
+                          width: 44,
+                          height: 44,
+                          borderRadius: BorderRadius.md,
+                          backgroundColor: Colors.Surface,
+                          borderWidth: 1,
+                          borderColor: Colors.TextMuted + '30',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                        onPress={toggleSelectAll}
+                      >
+                        <Icon
+                          name={selectedIds.size === pendingTransactions.length ? 'checkbox' : 'square-outline'}
+                          size={20}
+                          color={selectedIds.size === pendingTransactions.length ? Colors.Primary : Colors.TextMuted}
+                        />
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={{
+                          width: 44,
+                          height: 44,
+                          borderRadius: BorderRadius.md,
+                          backgroundColor: Colors.Surface,
+                          borderWidth: 1,
+                          borderColor: Colors.TextMuted + '30',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                        onPress={() => setSelectedIds(new Set())}
+                      >
+                        <Icon name="close" size={20} color={Colors.TextMuted} />
+                      </TouchableOpacity>
+                    </>
+                  ) : (
+                    /* 선택 없을 때 (기본) */
+                    <>
+                      <TouchableOpacity style={[styles.approveAllButton, { flex: 1 }]} onPress={handleApproveAll}>
+                        <Text style={styles.approveAllText}>
+                          전체 등록 ({pendingTransactions.length}개)
+                        </Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={{
+                          width: 44,
+                          height: 44,
+                          borderRadius: BorderRadius.md,
+                          backgroundColor: Colors.Danger + '10',
+                          borderWidth: 1,
+                          borderColor: Colors.Danger + '25',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                        onPress={handleRejectAll}
+                      >
+                        <Icon name="trash-outline" size={20} color={Colors.Danger} />
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={{
+                          width: 44,
+                          height: 44,
+                          borderRadius: BorderRadius.md,
+                          backgroundColor: Colors.Surface,
+                          borderWidth: 1,
+                          borderColor: Colors.Primary + '30',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                        onPress={() => setShowScrapeModal(true)}
+                        disabled={isScraping}
+                      >
+                        {isScraping ? (
+                          <ActivityIndicator size="small" color={Colors.Primary} />
+                        ) : (
+                          <Icon name="download-outline" size={20} color={Colors.Primary} />
+                        )}
+                      </TouchableOpacity>
+                    </>
+                  )}
+                </View>
+              </View>
+            }
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={async () => {
+                  setRefreshing(true);
+                  await loadPending();
+                  setRefreshing(false);
+                }}
+                tintColor={Colors.Primary}
+                colors={[Colors.Primary]}
+              />
+            }
           />
-        }
-      />
-      <ScrollToTopButton
-        scrollY={scrollY}
-        onPress={() => flatListRef.current?.scrollToOffset({ offset: 0, animated: true })}
-      />
+          <ScrollToTopButton
+            scrollY={scrollY}
+            onPress={() => flatListRef.current?.scrollToOffset({ offset: 0, animated: true })}
+            bottomOffset={bottomInset + 20}
+          />
+        </>
+      )}
 
       {/* ─── 카테고리 선택 모달 ─── */}
       <CategorySelectModal
@@ -1338,10 +1391,42 @@ const PendingTransactionsScreen: React.FC<{ navigation: any }> = ({ navigation }
                   fontSize: 13,
                   color: Colors.TextSecondary,
                   textAlign: 'center',
-                  marginBottom: 20,
+                  marginBottom: 16,
                 }}>
                   문자 + 금융앱 알림을 함께 가져옵니다
                 </Text>
+
+                {/* 제외했던 내역 다시 가져오기 토글 */}
+                <TouchableOpacity
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    paddingVertical: 10,
+                    paddingHorizontal: 12,
+                    backgroundColor: includeRejected ? Colors.Primary + '10' : Colors.Background,
+                    borderRadius: BorderRadius.md,
+                    borderWidth: 1,
+                    borderColor: includeRejected ? Colors.Primary + '40' : Colors.CardBorder,
+                    marginBottom: 16,
+                  }}
+                  onPress={() => setIncludeRejected(!includeRejected)}
+                  activeOpacity={0.7}
+                >
+                  <View style={{ flex: 1, marginRight: 8 }}>
+                    <Text style={{ fontSize: 13, fontWeight: '600', color: includeRejected ? Colors.Primary : Colors.Text }}>
+                      제외했던 내역도 다시 가져오기
+                    </Text>
+                    <Text style={{ fontSize: 11, color: Colors.TextMuted, marginTop: 2 }}>
+                      실수로 제외한 알림을 복구할 수 있습니다
+                    </Text>
+                  </View>
+                  <Icon
+                    name={includeRejected ? 'checkbox' : 'square-outline'}
+                    size={22}
+                    color={includeRejected ? Colors.Primary : Colors.TextMuted}
+                  />
+                </TouchableOpacity>
                 {[
                   { label: '1일', days: 1 },
                   { label: '3일', days: 3 },
@@ -1605,12 +1690,15 @@ const styles = StyleSheet.create({
   },
 
   // Empty
+  emptyScrollContent: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   emptyState: {
-    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: Spacing.xl,
-    paddingBottom: 80,
   },
   emptyIcon: {
     marginBottom: Spacing.lg,

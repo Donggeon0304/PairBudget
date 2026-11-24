@@ -13,7 +13,7 @@ import {
   isBankSms,
   generateTransactionHash,
 } from './BankNotificationParser';
-import { getPendingTransactions, getRejectedHashes, getArchivedNotifications } from './NotificationService';
+import { getPendingTransactions, getRejectedHashes, getArchivedNotifications, removeRejectedHashes } from './NotificationService';
 import type { ParsedNotification } from '../types';
 
 const { SmsReader } = NativeModules;
@@ -75,10 +75,12 @@ export async function checkSmsPermission(): Promise<boolean> {
  * 문자함에서 미등록 거래 스크래핑
  * @param daysBack 며칠 전까지 스캔 (기본 7일)
  * @param householdId Firestore 가계부 ID (중복 체크용)
+ * @param includeRejected 이전에 제외했던 내역도 다시 가져올지 여부 (기본 true)
  */
 export async function scrapeSmsTransactions(
   daysBack: number = 7,
   householdId: string,
+  includeRejected: boolean = true,
 ): Promise<ScrapeResult> {
   // 1. 권한 체크
   const hasPermission = await checkSmsPermission();
@@ -228,7 +230,10 @@ export async function scrapeSmsTransactions(
   let rejectedHashes: string[] = [];
   try {
     rejectedHashes = await getRejectedHashes();
-    rejectedHashes.forEach(h => existingHashes.add(h));
+    if (!includeRejected) {
+      // 제외 내역 포함 옵션이 꺼져있을 때만 기존 해시에 추가하여 스킵
+      rejectedHashes.forEach(h => existingHashes.add(h));
+    }
   } catch (e) {
     console.warn('[SmsScrapingService] 제외 내역 조회 실패:', e);
   }
@@ -246,7 +251,7 @@ export async function scrapeSmsTransactions(
       item.smsDate,
     );
 
-    // 이미 등록됨 or 대기 중 or 제외됨 → 스킵 (해시 매칭)
+    // 이미 등록됨 or 대기 중 or (옵션에 따라) 제외됨 → 스킵 (해시 매칭)
     if (existingHashes.has(hash)) continue;
 
     // 금액+시간 근사 매칭 (해시 불일치 대비 + 같은 은행 여부 확인)
@@ -283,6 +288,24 @@ export async function scrapeSmsTransactions(
     seenHashes.add(hash);
 
     result.push(item);
+  }
+
+  // 다시 가져온 항목들은 제외 목록(rejectedHashes)에서 해제
+  if (includeRejected && result.length > 0) {
+    try {
+      const scrapedHashes = result.map(item =>
+        generateTransactionHash(
+          item.parsed.amount!,
+          item.parsed.merchant,
+          item.parsed.dateTime,
+          item.parsed.cardIssuer,
+          item.smsDate,
+        )
+      );
+      await removeRejectedHashes(scrapedHashes);
+    } catch (e) {
+      console.warn('[SmsScrapingService] 제외 해시 해제 실패:', e);
+    }
   }
 
   console.log(`[SmsScrapingService] 최종 미등록: ${result.length}건 (제외해시: ${rejectedHashes.length}개)`);

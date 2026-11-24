@@ -27,7 +27,7 @@ import { Spacing, BorderRadius } from '../../theme/spacing';
 import { formatCurrency } from '../../utils/formatCurrency';
 import { useAuth } from '../../contexts/AuthContext';
 import { useHousehold } from '../../contexts/HouseholdContext';
-import { getBankInfo } from '../../utils/BankInfo';
+import { getBankInfo, getBankTagStyle } from '../../utils/BankInfo';
 import type { Transaction } from '../../types';
 import { formatCategoryLabel } from '../../utils/formatCategory';
 import { useMonth } from '../../contexts/MonthContext';
@@ -371,11 +371,13 @@ const TransactionListScreen: React.FC<TransactionListScreenProps> = ({ navigatio
                         </Text>
                         {tx.cardIssuer && (() => {
                           const bank = getBankInfo(tx.cardIssuer);
-                          return bank ? (
-                            <View style={[styles.bankTag, { backgroundColor: bank.color + '18' }]}>
-                              <Text style={[styles.bankTagText, { color: bank.color }]}>{bank.shortName}</Text>
+                          if (!bank) return null;
+                          const tagStyle = getBankTagStyle(bank.color);
+                          return (
+                            <View style={[styles.bankTag, { backgroundColor: tagStyle.bg, borderWidth: 0.5, borderColor: tagStyle.border }]}>
+                              <Text style={[styles.bankTagText, { color: tagStyle.text, fontWeight: '700' }]}>{bank.shortName}</Text>
                             </View>
-                          ) : null;
+                          );
                         })()}
                         <Text style={styles.txTime}>
                           {renderTimeLabel(tx.date)}

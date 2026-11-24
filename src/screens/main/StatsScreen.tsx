@@ -32,7 +32,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useHousehold } from '../../contexts/HouseholdContext';
 import { useMonth } from '../../contexts/MonthContext';
 import { useFiscalCycle } from '../../contexts/FiscalCycleContext';
-import { getBankInfo } from '../../utils/BankInfo';
+import { getBankInfo, getBankTagStyle } from '../../utils/BankInfo';
 import { formatCategoryLabel } from '../../utils/formatCategory';
 import type { Transaction } from '../../types';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -1335,11 +1335,13 @@ const StatsScreen: React.FC = () => {
                                   </Text>
                                   {tx.cardIssuer && (() => {
                                     const bank = getBankInfo(tx.cardIssuer);
-                                    return bank ? (
-                                      <View style={{ paddingHorizontal: 4, paddingVertical: 1, borderRadius: 3, backgroundColor: bank.color + '18' }}>
-                                        <Text style={{ fontSize: 9, fontWeight: '700', color: bank.color }}>{bank.shortName}</Text>
+                                    if (!bank) return null;
+                                    const tagStyle = getBankTagStyle(bank.color);
+                                    return (
+                                      <View style={{ paddingHorizontal: 4, paddingVertical: 1, borderRadius: 3, backgroundColor: tagStyle.bg, borderWidth: 0.5, borderColor: tagStyle.border }}>
+                                        <Text style={{ fontSize: 9, fontWeight: '700', color: tagStyle.text }}>{bank.shortName}</Text>
                                       </View>
-                                    ) : null;
+                                    );
                                   })()}
                                   <Text style={{ fontSize: 11, color: Colors.TextMuted }}>{h}:{m}</Text>
                                 </View>

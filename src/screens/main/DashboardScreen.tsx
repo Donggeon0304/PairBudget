@@ -18,6 +18,8 @@ import {
   PermissionsAndroid,
   Modal,
   Linking,
+  Dimensions,
+  ActivityIndicator,
 } from 'react-native';
 import firestore from '@react-native-firebase/firestore';
 import Icon from 'react-native-vector-icons/Ionicons';
@@ -121,6 +123,7 @@ const DashboardScreen: React.FC = () => {
   const [pendingCount, setPendingCount] = useState(0);
   const [fiscalSheetVisible, setFiscalSheetVisible] = useState(false);
   const [fixedCosts, setFixedCosts] = useState<FixedCostItem[]>([]);
+  const [fixedCostsLoading, setFixedCostsLoading] = useState(false);
   const [fixedCostExpanded, setFixedCostExpanded] = useState(false);
   const [expandedFixedCategories, setExpandedFixedCategories] = useState<Set<string>>(new Set());
   const [fixedCostDetail, setFixedCostDetail] = useState<FixedCostItem | null>(null);
@@ -251,13 +254,16 @@ const DashboardScreen: React.FC = () => {
   const loadFixedCosts = useCallback(() => {
     if (!user?.householdId || !user?.uid) {
       setFixedCosts([]);
+      setFixedCostsLoading(false);
       return;
     }
+    setFixedCostsLoading(true);
     getFixedCostExcludeCategories().then(excludeList => {
       analyzeFixedCosts(user.householdId!, currentMonth, user.uid!, 'personal', fiscalCycle, excludeList)
-        .then(setFixedCosts)
-        .catch(() => setFixedCosts([]));
-    });
+        .then(res => setFixedCosts(res))
+        .catch(() => setFixedCosts([]))
+        .finally(() => setFixedCostsLoading(false));
+    }).catch(() => setFixedCostsLoading(false));
   }, [user?.householdId, user?.uid, currentMonth, fiscalCycle]);
 
   // 탭 포커스 시 고정비 로드 (마운트 + 설정에서 복원 후 돌아올 때)
@@ -492,7 +498,7 @@ const DashboardScreen: React.FC = () => {
         )}
 
         {/* ─── 고정비 카드 (공동 모드에서는 숨김) ─── */}
-        {viewMode !== 'couple' && fixedCosts.length > 0 && (() => {
+        {viewMode !== 'couple' && (fixedCosts.length > 0 || fixedCostsLoading) && (() => {
           // 카테고리별 그룹핑
           const grouped = fixedCosts.reduce<Record<string, FixedCostItem[]>>((acc, item) => {
             const key = item.categoryName;
@@ -518,9 +524,13 @@ const DashboardScreen: React.FC = () => {
                 <View style={styles.fixedCostTitleRow}>
                   <Icon name="repeat-outline" size={18} color={Colors.Primary} />
                   <Text style={[styles.sectionTitle, {marginBottom: 0}]}>고정비</Text>
-                  <Text style={styles.fixedCostTotal}>
-                    {formatCurrency(fixedCosts.reduce((s, c) => s + (c.isPending ? c.expectedAmount : c.amount), 0))}
-                  </Text>
+                  {fixedCostsLoading ? (
+                    <ActivityIndicator size="small" color={Colors.Primary} style={{ marginLeft: 8 }} />
+                  ) : (
+                    <Text style={styles.fixedCostTotal}>
+                      {formatCurrency(fixedCosts.reduce((s, c) => s + (c.isPending ? c.expectedAmount : c.amount), 0))}
+                    </Text>
+                  )}
                 </View>
                 <Icon
                   name={fixedCostExpanded ? 'chevron-up' : 'chevron-down'}
@@ -528,7 +538,13 @@ const DashboardScreen: React.FC = () => {
                   color={Colors.TextMuted}
                 />
               </TouchableOpacity>
-              {displayKeys.map((catName) => {
+              {fixedCostsLoading ? (
+                <View style={{ alignItems: 'center', justifyContent: 'center', paddingVertical: 28, gap: 8 }}>
+                  <ActivityIndicator size="small" color={Colors.Primary} />
+                  <Text style={{ fontSize: 13, color: Colors.TextMuted }}>고정비를 분석하고 있습니다...</Text>
+                </View>
+              ) : (
+                displayKeys.map((catName) => {
                 const items = grouped[catName];
                 const catTotal = items.reduce((s, c) => s + (c.isPending ? c.expectedAmount : c.amount), 0);
                 const isExpanded = expandedFixedCategories.has(catName);
@@ -676,8 +692,8 @@ const DashboardScreen: React.FC = () => {
                     ))}
                   </View>
                 );
-              })}
-              {!fixedCostExpanded && categoryKeys.length > 3 && (
+              }))}
+              {!fixedCostsLoading && !fixedCostExpanded && categoryKeys.length > 3 && (
                 <TouchableOpacity onPress={() => setFixedCostExpanded(true)} style={styles.fixedCostMore}>
                   <Text style={styles.fixedCostMoreText}>+{categoryKeys.length - 3}개 카테고리 더보기</Text>
                 </TouchableOpacity>
@@ -861,12 +877,15 @@ const DashboardScreen: React.FC = () => {
         animationType="fade"
         onRequestClose={() => setFixedCostDetail(null)}
       >
-        <TouchableOpacity
-          style={styles.fixedDetailOverlay}
-          activeOpacity={1}
-          onPress={() => setFixedCostDetail(null)}
-        >
-          <TouchableOpacity activeOpacity={1} style={styles.fixedDetailSheet}>
+        <View style={styles.fixedDetailOverlay}>
+          {/* 바깥 배경 터치 시 닫기 (절대 위치 레이어로 분리하여 내부 ScrollView 제스처 방해 안 함) */}
+          <TouchableOpacity
+            style={StyleSheet.absoluteFill}
+            activeOpacity={1}
+            onPress={() => setFixedCostDetail(null)}
+          />
+
+          <View style={styles.fixedDetailSheet}>
             {fixedCostDetail && (
               <>
                 <View style={styles.fixedDetailHeader}>
@@ -916,7 +935,7 @@ const DashboardScreen: React.FC = () => {
                   )}
                 </View>
 
-                <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={true} nestedScrollEnabled={true}>
+                <ScrollView style={{ maxHeight: Dimensions.get('window').height * 0.45 }} showsVerticalScrollIndicator={true} nestedScrollEnabled={true}>
                   {fixedCostDetail.evidence.map((ev, idx) => (
                     <View key={`ev-${idx}`} style={styles.fixedDetailMonth}>
                       <View style={styles.fixedDetailMonthHeader}>
@@ -1018,8 +1037,8 @@ const DashboardScreen: React.FC = () => {
                 </View>
               </>
             )}
-          </TouchableOpacity>
-        </TouchableOpacity>
+          </View>
+        </View>
       </Modal>
     </View>
   );
@@ -1203,8 +1222,6 @@ const styles = StyleSheet.create({
     padding: Spacing.lg,
     width: '100%',
     maxHeight: '80%',
-    flexShrink: 1,
-    overflow: 'hidden',
   },
   fixedDetailHeader: {
     flexDirection: 'row' as const,

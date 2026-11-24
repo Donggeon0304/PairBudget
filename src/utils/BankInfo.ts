@@ -105,3 +105,24 @@ export function getBankColor(cardIssuer: string | null | undefined): string {
   const info = getBankInfo(cardIssuer);
   return info?.color || '#888888';
 }
+
+/**
+ * 은행 태그/뱃지 스타일 헬퍼
+ * - 카카오뱅크, 카카오페이 등 노란색 계열은 흰 배경에서 가독성을 위해
+ *   산뜻한 노란 배경에 진한 웜 앰버/골드(#92400E) 텍스트를 적용하여 노란 계열 톤을 유지하면서 선명하게 읽히도록 함.
+ */
+export function getBankTagStyle(color: string) {
+  const c = color.toUpperCase();
+  if (c === '#FFEB00' || c === '#FEE500' || c === '#FFB300') {
+    return {
+      bg: '#FEF9C3',       // 부드러운 라이트 옐로우 배경
+      text: '#A16207',     // 따뜻한 딥 앰버/골드 노랑 계열 텍스트 (시인성 극대화)
+      border: '#FDE047',   // 옐로우 보더
+    };
+  }
+  return {
+    bg: color + '18',
+    text: color,
+    border: 'transparent',
+  };
+}

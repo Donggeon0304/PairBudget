@@ -162,6 +162,25 @@ const SUPPORTED_BANKS: { packageName: string; name: string; color: string; initi
   { packageName: 'com.bccard.mobilecard', name: 'BC카드', color: '#ED1C24', initial: 'BC', type: 'card' },
 ];
 
+/** 은행 뱃지 시인성 스타일 (카카오뱅크 등 밝은 노랑색 계열 텍스트 가독성 확보) */
+const getBankBadgeStyle = (color: string) => {
+  const c = color.toUpperCase();
+  if (c === '#FFEB00' || c === '#FEE500' || c === '#FFB300') {
+    return {
+      bg: '#FEF9C3',       // 부드러운 옐로우 배경
+      text: '#A16207',     // 노란/골드 계열이면서 또렷하게 읽히는 딥 앰버
+      borderWidth: 1,
+      borderColor: '#FDE047',
+    };
+  }
+  return {
+    bg: color + '20',
+    text: color,
+    borderWidth: 0,
+    borderColor: 'transparent',
+  };
+};
+
 /** Get avatar emoji or first character of displayName */
 const getAvatarDisplay = (photoURL?: string, displayName?: string): string => {
   if (photoURL) {
@@ -987,10 +1006,18 @@ const SettingsScreen: React.FC = () => {
                   itemHeight={52}
                   onReorder={async (reordered) => {
                     try {
+                      // 대메뉴 그룹 순서를 그대로 보존하면서 현재 그룹 내부 소메뉴만 재정렬
                       const updates: { id: string; data: { order: number } }[] = [];
-                      for (let i = 0; i < reordered.length; i++) {
-                        if (reordered[i].order !== i) {
-                          updates.push({ id: reordered[i].id, data: { order: i } });
+                      let orderCounter = 0;
+                      for (const grp of groups) {
+                        const cats = grp === effectiveGroup
+                          ? reordered
+                          : (groupMap.get(grp) || []).sort((a, b) => a.order - b.order);
+                        for (const cat of cats) {
+                          if (cat.order !== orderCounter) {
+                            updates.push({ id: cat.id, data: { order: orderCounter } });
+                          }
+                          orderCounter++;
                         }
                       }
                       if (updates.length > 0) await batchUpdateCategories(updates);
@@ -1231,12 +1258,14 @@ const SettingsScreen: React.FC = () => {
                                 width: 32,
                                 height: 32,
                                 borderRadius: 16,
-                                backgroundColor: bankInfo.color + '25',
+                                backgroundColor: getBankBadgeStyle(bankInfo.color).bg,
+                                borderWidth: getBankBadgeStyle(bankInfo.color).borderWidth,
+                                borderColor: getBankBadgeStyle(bankInfo.color).borderColor,
                                 justifyContent: 'center',
                                 alignItems: 'center',
                                 marginRight: 10,
                               }}>
-                                <Text style={{ fontSize: 11, fontWeight: '800', color: bankInfo.color }}>
+                                <Text style={{ fontSize: 11, fontWeight: '800', color: getBankBadgeStyle(bankInfo.color).text }}>
                                   {bankInfo.initial}
                                 </Text>
                               </View>
@@ -1272,7 +1301,7 @@ const SettingsScreen: React.FC = () => {
                                 color: Colors.Text,
                                 paddingVertical: 4,
                               }}
-                              placeholder="끝 4자리 (선택)"
+                              placeholder="계좌/카드 끝 4자리"
                               placeholderTextColor={Colors.TextMuted}
                               value={item.keyword}
                               onChangeText={val => handleUpdateBankKeyword(item.id, val)}
@@ -1360,7 +1389,9 @@ const SettingsScreen: React.FC = () => {
                             width: 32,
                             height: 32,
                             borderRadius: 16,
-                            backgroundColor: bank.color + '20',
+                            backgroundColor: getBankBadgeStyle(bank.color).bg,
+                            borderWidth: getBankBadgeStyle(bank.color).borderWidth,
+                            borderColor: getBankBadgeStyle(bank.color).borderColor,
                             justifyContent: 'center',
                             alignItems: 'center',
                             marginRight: 10,
@@ -1368,7 +1399,7 @@ const SettingsScreen: React.FC = () => {
                             <Text style={{
                               fontSize: 11,
                               fontWeight: '800',
-                              color: bank.color,
+                              color: getBankBadgeStyle(bank.color).text,
                             }}>
                               {bank.initial}
                             </Text>
@@ -1393,7 +1424,7 @@ const SettingsScreen: React.FC = () => {
               </View>
             </ScrollView>
 
-            <View style={styles.modalButtonRow}>
+            <View style={[styles.modalButtonRow, { paddingHorizontal: 20, paddingTop: 12 }]}>
               <TouchableOpacity
                 style={styles.modalCancelBtn}
                 onPress={() => setCoupleBankModalVisible(false)}
@@ -1537,7 +1568,7 @@ const SettingsScreen: React.FC = () => {
               })}
             </ScrollView>
 
-            <View style={styles.modalButtonRow}>
+            <View style={[styles.modalButtonRow, { paddingHorizontal: 20, paddingTop: 12 }]}>
               <TouchableOpacity
                 style={styles.modalCancelBtn}
                 onPress={() => setFixedCostExcludeModalVisible(false)}
@@ -1571,7 +1602,12 @@ const SettingsScreen: React.FC = () => {
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContainer}>
-            <Text style={styles.modalTitle}>고정비 관리</Text>
+            <View style={styles.categoryModalHeader}>
+              <Text style={styles.modalTitle}>고정비 관리</Text>
+              <TouchableOpacity onPress={() => setFixedCostPrefModalVisible(false)}>
+                <Icon name="close" size={24} color={Colors.TextSecondary} />
+              </TouchableOpacity>
+            </View>
 
             {pinnedItems.length === 0 && dismissedItems.length === 0 ? (
               <View style={{paddingVertical: Spacing.lg, alignItems: 'center'}}>
@@ -1631,12 +1667,12 @@ const SettingsScreen: React.FC = () => {
               </ScrollView>
             )}
 
-            <View style={styles.modalButtonRow}>
+            <View style={[styles.modalButtonRow, { marginTop: Spacing.md }]}>
               <TouchableOpacity
-                style={[styles.modalCancelBtn, {flex: 1}]}
+                style={styles.modalConfirmBtn}
                 onPress={() => setFixedCostPrefModalVisible(false)}
               >
-                <Text style={styles.modalCancelText}>닫기</Text>
+                <Text style={styles.modalConfirmText}>확인</Text>
               </TouchableOpacity>
             </View>
           </View>

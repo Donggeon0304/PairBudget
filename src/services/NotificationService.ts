@@ -756,6 +756,43 @@ export async function getRejectedHashes(): Promise<string[]> {
   }
 }
 
+/**
+ * 제외된 거래 해시 목록에서 특정 해시들을 제거 (다시 가져올 때)
+ */
+export async function removeRejectedHashes(hashesToRemove: string[]): Promise<void> {
+  try {
+    const hashes = await getRejectedHashes();
+    const toRemoveSet = new Set(hashesToRemove);
+    const filtered = hashes.filter(h => !toRemoveSet.has(h));
+    await SecureStorage.setItem(REJECTED_HASHES_KEY, JSON.stringify(filtered));
+  } catch (e) {
+    console.error('[NotificationService] removeRejectedHashes error:', e);
+  }
+}
+
+/**
+ * 제외된 거래 해시 전체 초기화
+ */
+export async function clearRejectedHashes(): Promise<void> {
+  try {
+    await SecureStorage.removeItem(REJECTED_HASHES_KEY);
+  } catch (e) {
+    console.error('[NotificationService] clearRejectedHashes error:', e);
+  }
+}
+
+/**
+ * 복수의 대기 거래 항목을 추가하고 저장 (SMS/푸시 스크래핑 결과 등)
+ */
+export async function addPendingTransactions(items: PendingTransaction[]): Promise<void> {
+  const existing = await readPending();
+  const existingIds = new Set(existing.map(t => t.id));
+  const newItems = items.filter(t => !existingIds.has(t.id));
+  if (newItems.length > 0) {
+    await writePending([...newItems, ...existing]);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // 승인된 거래 해시 관리 (등록 후 다른 앱 알림 중복 방지)
 // ---------------------------------------------------------------------------

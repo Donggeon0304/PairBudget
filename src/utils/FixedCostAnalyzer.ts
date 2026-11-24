@@ -132,6 +132,15 @@ function isBlacklistedDescription(normalizedDesc: string): boolean {
   return DESCRIPTION_BLACKLIST.some(bl => baseName.includes(bl));
 }
 
+/** 변동계수(CV) 계산 헬퍼 */
+function calculateCv(amounts: number[]): number {
+  if (amounts.length < 2) return 0;
+  const avg = amounts.reduce((s, a) => s + a, 0) / amounts.length;
+  if (avg <= 0) return 1;
+  const variance = amounts.reduce((s, a) => s + Math.pow(a - avg, 2), 0) / amounts.length;
+  return Math.sqrt(variance) / avg;
+}
+
 // ── 내부 타입 ──
 
 interface MonthlyBucket {
@@ -351,36 +360,48 @@ export async function analyzeFixedCosts(
       m.amounts.reduce((s, a) => s + a, 0),
     );
 
-    // 평균 금액 (이전 발생 월 기준)
-    const avg = activeAmounts.length > 0
-      ? activeAmounts.reduce((s, a) => s + a, 0) / activeAmounts.length
+    // 변동계수(CV) 체크 및 유효 금액 산정 (pin이면 건너뜀)
+    let validAmounts = activeAmounts;
+    if (!isPinned && activeAmounts.length >= 2) {
+      const cv = calculateCv(activeAmounts);
+      if (cv <= MAX_CV) {
+        validAmounts = activeAmounts;
+      } else if (activeAmounts.length >= 3) {
+        // 3달 전체로는 CV 초과지만, 최근 연속 2달이 안정적인지 재확인 (과거 3달 전 데이터 불완전 방지)
+        const recent2 = activeAmounts.slice(0, 2);
+        const recent2Cv = calculateCv(recent2);
+        if (recent2Cv <= MAX_CV) {
+          validAmounts = recent2;
+        } else {
+          return;
+        }
+      } else {
+        return;
+      }
+    }
+
+    // 평균 금액 (유효 월 기준)
+    const avg = validAmounts.length > 0
+      ? validAmounts.reduce((s, a) => s + a, 0) / validAmounts.length
       : 0;
 
     // 최소 금액 체크 (pin이면 건너뜀)
     if (!isPinned && avg < MIN_AMOUNT) return;
 
-    // 변동계수(CV) 체크 — 이전 달 기준, 모든 카테고리 동일 (pin이면 건너뜀)
-    if (!isPinned && activeAmounts.length >= 2) {
-      const variance = activeAmounts.reduce((s, a) => s + Math.pow(a - avg, 2), 0) / activeAmounts.length;
-      const stdDev = Math.sqrt(variance);
-      const cv = avg > 0 ? stdDev / avg : 1;
-      if (cv > MAX_CV) return;
-    }
+    // 금액 동일 여부 (유효 월 기준)
+    const allSame = validAmounts.length > 0 && validAmounts.every(a => a === validAmounts[0]);
 
-    // 금액 동일 여부 (이전 발생 월 기준)
-    const allSame = activeAmounts.length > 0 && activeAmounts.every(a => a === activeAmounts[0]);
-
-    // 고정비 금액: 이전 달 기준 (이번 달 불완전한 금액 제외)
-    const fixedAmount = allSame ? activeAmounts[0] : Math.round(avg);
+    // 고정비 금액: 유효 월 기준 (이번 달 불완전한 금액 제외)
+    const fixedAmount = allSame ? validAmounts[0] : Math.round(avg);
 
     // 예상 금액 (이번 달 미발생 시 표시용)
-    const expectedAmount = activeAmounts.length > 0
-      ? activeAmounts[0]
+    const expectedAmount = validAmounts.length > 0
+      ? validAmounts[0]
       : Math.round(avg);
 
     const evidence = data.monthly.map((m, idx) => ({
       monthLabel: monthLabels[idx],
-      transactions: m.transactions.sort((a, b) => a.date.getTime() - b.date.getTime()),
+      transactions: m.transactions.sort((a, b) => b.date.getTime() - a.date.getTime()),
     }));
 
     fixedCosts.push({
@@ -411,6 +432,9 @@ export async function analyzeFixedCosts(
       fixedDescKeys.add(key);
     }
   });
+
+  console.log(`[FixedCost][Step8] fixedDescKeys 개수: ${fixedDescKeys.size}, keys: ${Array.from(fixedDescKeys).join(', ')}`);
+  console.log(`[FixedCost][Step8] excludeCategories: ${JSON.stringify(excludeCategories)}`);
 
   // 카테고리별 전체 거래 집계 (CV 판단용) + 나머지 거래 집계 (evidence 표시용)
   const catMap: Record<string, {
@@ -466,6 +490,11 @@ export async function analyzeFixedCosts(
     }
   });
 
+  // catMap 점심 존재 여부 로그
+  const lunchKey = Object.keys(catMap).find(k => k.includes('점심'));
+  console.log(`[FixedCost][Step8] catMap 전체 카테고리: ${Object.keys(catMap).join(', ')}`);
+  console.log(`[FixedCost][Step8] 점심 catMap key: ${lunchKey || '없음'}`);
+
   // 카테고리별 CV 계산 & 고정비 추가
   Object.entries(catMap).forEach(([catKey, catData]) => {
     // 최소 연속 2개월 발생 필수 (퐁당퐁당 제외) — 카테고리 전체 기준
@@ -473,14 +502,33 @@ export async function analyzeFixedCosts(
     const hasCatM1 = catData.monthlyTotal[1].amounts.length > 0;
     const hasCatM2 = catData.monthlyTotal[2].amounts.length > 0;
 
-    if (hasCatM0) {
-      if (!hasCatM1) return; // 이번 달 발생 시 직전 달에도 반드시 발생했어야 인정
-    } else {
-      if (!isCurrentMonthActual) return;
-      if (!hasCatM1 || !hasCatM2) return; // 이번 달 미발생 시 직전 2개월 연속 발생해야 인정
+    const isDebug = catData.categoryName === '점심' || catKey.includes('점심');
+    if (isDebug) {
+      console.log(`[FixedCost][Step8] catKey=${catKey}`);
+      console.log(`  monthLabels: ${monthLabels.join(', ')}`);
+      console.log(`  monthlyTotal: M0=${catData.monthlyTotal[0].amounts.length}건(${catData.monthlyTotal[0].amounts.reduce((s,a)=>s+a,0)}), M1=${catData.monthlyTotal[1].amounts.length}건(${catData.monthlyTotal[1].amounts.reduce((s,a)=>s+a,0)}), M2=${catData.monthlyTotal[2].amounts.length}건(${catData.monthlyTotal[2].amounts.reduce((s,a)=>s+a,0)})`);
+      console.log(`  monthly(나머지): M0=${catData.monthly[0].transactions.length}건(${catData.monthly[0].amounts.reduce((s,a)=>s+a,0)}), M1=${catData.monthly[1].transactions.length}건(${catData.monthly[1].amounts.reduce((s,a)=>s+a,0)}), M2=${catData.monthly[2].transactions.length}건(${catData.monthly[2].amounts.reduce((s,a)=>s+a,0)})`);
+      console.log(`  hasCatM0=${hasCatM0}, hasCatM1=${hasCatM1}, hasCatM2=${hasCatM2}, isCurrentMonthActual=${isCurrentMonthActual}`);
     }
 
-    // CV 계산 — 카테고리 전체 합계 기준 (개별 맛집 고정비 분리 여부에 무관하게 카테고리 총합의 안정성 판단)
+    if (hasCatM0) {
+      if (!hasCatM1) {
+        if (isDebug) console.log(`  ❌ 탈락: M0 있지만 M1 없음 (연속성 실패)`);
+        return;
+      }
+    } else {
+      if (!isCurrentMonthActual) {
+        if (isDebug) console.log(`  ❌ 탈락: M0 없고 isCurrentMonthActual=false (과거 월)`);
+        return;
+      }
+      if (!hasCatM1 || !hasCatM2) {
+        if (isDebug) console.log(`  ❌ 탈락: M0 없고 M1/M2 연속 아님`);
+        return;
+      }
+    }
+    if (isDebug) console.log(`  ✅ 연속성 통과`);
+
+    // CV 계산 — 카테고리 전체 합계 기준
     const cvCatData = isCurrentMonthActual
       ? catData.monthlyTotal.slice(1)
       : catData.monthlyTotal;
@@ -488,27 +536,57 @@ export async function analyzeFixedCosts(
       .filter(m => m.amounts.length > 0)
       .map(m => m.amounts.reduce((s, a) => s + a, 0));
 
-    if (catActiveAmounts.length < 1) return;
-
-    const catAvg = catActiveAmounts.reduce((s, a) => s + a, 0) / catActiveAmounts.length;
-    if (catAvg < MIN_AMOUNT) return;
-
-    if (catActiveAmounts.length >= 2) {
-      const catVariance = catActiveAmounts.reduce((s, a) => s + Math.pow(a - catAvg, 2), 0) / catActiveAmounts.length;
-      const catCv = catAvg > 0 ? Math.sqrt(catVariance) / catAvg : 1;
-      if (catCv > MAX_CV) return;
+    if (catActiveAmounts.length < 1) {
+      if (isDebug) console.log(`  ❌ 탈락: catActiveAmounts 없음`);
+      return;
     }
 
-    // 나머지 거래가 하나도 없으면 (전부 description 기반으로 잡힘) 카테고리 항목 불필요
+    const catAvg = catActiveAmounts.reduce((s, a) => s + a, 0) / catActiveAmounts.length;
+    if (catAvg < MIN_AMOUNT) {
+      if (isDebug) console.log(`  ❌ 탈락: catAvg=${catAvg} < MIN_AMOUNT=${MIN_AMOUNT}`);
+      return;
+    }
+
+    if (catActiveAmounts.length >= 2) {
+      const overallCv = calculateCv(catActiveAmounts);
+      if (isDebug) console.log(`  CV 계산: amounts=${JSON.stringify(catActiveAmounts)}, cv=${overallCv.toFixed(4)}, MAX_CV=${MAX_CV}`);
+
+      if (overallCv > MAX_CV) {
+        // 3달 전체로는 CV 초과지만, 최근 연속 2달이 안정적인지 재확인 (과거 3달 전 데이터 불완전 방지)
+        if (catActiveAmounts.length >= 3) {
+          const recent2Cv = calculateCv(catActiveAmounts.slice(0, 2));
+          if (isDebug) console.log(`  최근 2달 CV 재계산: amounts=${JSON.stringify(catActiveAmounts.slice(0, 2))}, cv=${recent2Cv.toFixed(4)}`);
+          if (recent2Cv > MAX_CV) {
+            if (isDebug) console.log(`  ❌ 탈락: 최근 2달도 CV 초과`);
+            return;
+          }
+          if (isDebug) console.log(`  ✅ 최근 2달 CV 안정 통과!`);
+        } else {
+          if (isDebug) console.log(`  ❌ 탈락: CV 초과`);
+          return;
+        }
+      }
+    }
+    if (isDebug) console.log(`  ✅ CV 통과`);
+
+    // 나머지 거래가 하나도 없으면 카테고리 항목 불필요
     const hasRemainder = catData.monthly.some(m => m.transactions.length > 0);
-    if (!hasRemainder) return;
+    if (!hasRemainder) {
+      if (isDebug) console.log(`  ❌ 탈락: 나머지 거래 없음 (전부 개별 고정비로 잡힘)`);
+      return;
+    }
 
     // preferenceKey: 카테고리 기반 키
     const catPrefKey = makeFixedCostKey('__category__', catData.categoryGroup, catData.categoryName);
 
     // dismiss 체크
     const catPref = preferences[catPrefKey];
-    if (catPref?.action === 'dismiss') return;
+    if (catPref?.action === 'dismiss') {
+      if (isDebug) console.log(`  ❌ 탈락: dismiss됨`);
+      return;
+    }
+
+    if (isDebug) console.log(`  ✅ 최종 통과! "점심 외" 추가됨`);
 
     // 금액은 나머지 거래 기준
     const catMonthlyAmounts = catData.monthly.map(m =>
@@ -523,7 +601,7 @@ export async function analyzeFixedCosts(
 
     const catEvidence = catData.monthly.map((m, idx) => ({
       monthLabel: monthLabels[idx],
-      transactions: m.transactions.sort((a, b) => a.date.getTime() - b.date.getTime()),
+      transactions: m.transactions.sort((a, b) => b.date.getTime() - a.date.getTime()),
     }));
 
     const isPinned = catPref?.action === 'pin';
