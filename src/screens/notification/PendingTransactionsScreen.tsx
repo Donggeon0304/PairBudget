@@ -259,11 +259,16 @@ const PendingTransactionsScreen: React.FC<{ navigation: any }> = ({ navigation }
     }
   }, [pendingTransactions.length]);
 
-  /** 공동 여부 결정 */
+  /** 공동 여부 결정 (식별 번호/키워드가 있으면 원문 포함 여부 확인) */
   const getIsCouple = (item: PendingTransaction): boolean => {
     if (coupleOverride[item.id] !== undefined) return coupleOverride[item.id];
     if (coupleBanks.length > 0 && item.parsed.packageName) {
-      return coupleBanks.includes(item.parsed.packageName);
+      return coupleBanks.some(entry => {
+        const [pkg, keyword] = entry.split(':');
+        if (pkg !== item.parsed.packageName) return false;
+        if (!keyword) return true;
+        return (item.parsed.raw || '').includes(keyword);
+      });
     }
     return item.isCouple || false;
   };
@@ -1048,17 +1053,18 @@ const PendingTransactionsScreen: React.FC<{ navigation: any }> = ({ navigation }
               )}
             </View>
             {sortedTransactions.length > 0 && (
-              <View style={{ flexDirection: 'row', gap: 8, paddingHorizontal: Spacing.md }}>
+              <View style={{ flexDirection: 'row', gap: 8, marginBottom: Spacing.md }}>
                 {selectedIds.size > 0 ? (
                   /* 선택된 항목이 있을 때 */
                   <>
                     <TouchableOpacity
                       style={{
                         flex: 1,
-                        paddingVertical: 12,
+                        height: 44,
                         borderRadius: BorderRadius.md,
                         backgroundColor: Colors.Danger + '15',
                         alignItems: 'center',
+                        justifyContent: 'center',
                       }}
                       onPress={handleRejectSelected}
                     >
@@ -1072,8 +1078,8 @@ const PendingTransactionsScreen: React.FC<{ navigation: any }> = ({ navigation }
                     </TouchableOpacity>
                     <TouchableOpacity
                       style={{
-                        paddingHorizontal: 14,
-                        paddingVertical: 12,
+                        width: 44,
+                        height: 44,
                         borderRadius: BorderRadius.md,
                         backgroundColor: Colors.Surface,
                         borderWidth: 1,
@@ -1091,8 +1097,8 @@ const PendingTransactionsScreen: React.FC<{ navigation: any }> = ({ navigation }
                     </TouchableOpacity>
                     <TouchableOpacity
                       style={{
-                        paddingHorizontal: 14,
-                        paddingVertical: 12,
+                        width: 44,
+                        height: 44,
                         borderRadius: BorderRadius.md,
                         backgroundColor: Colors.Surface,
                         borderWidth: 1,
@@ -1115,15 +1121,14 @@ const PendingTransactionsScreen: React.FC<{ navigation: any }> = ({ navigation }
                     </TouchableOpacity>
                     <TouchableOpacity
                       style={{
-                        paddingHorizontal: 14,
+                        width: 44,
+                        height: 44,
                         borderRadius: BorderRadius.md,
                         backgroundColor: Colors.Danger + '10',
                         borderWidth: 1,
                         borderColor: Colors.Danger + '25',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        height: 44,
-                        width: 44,
                       }}
                       onPress={handleRejectAll}
                     >
@@ -1131,15 +1136,14 @@ const PendingTransactionsScreen: React.FC<{ navigation: any }> = ({ navigation }
                     </TouchableOpacity>
                     <TouchableOpacity
                       style={{
-                        paddingHorizontal: 14,
+                        width: 44,
+                        height: 44,
                         borderRadius: BorderRadius.md,
                         backgroundColor: Colors.Surface,
                         borderWidth: 1,
                         borderColor: Colors.Primary + '30',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        height: 44,
-                        width: 44,
                       }}
                       onPress={() => setShowScrapeModal(true)}
                       disabled={isScraping}
@@ -1420,8 +1424,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   approveAllButton: {
-    marginHorizontal: Spacing.md,
-    marginBottom: Spacing.md,
     backgroundColor: 'rgba(46, 204, 113, 0.12)',
     borderRadius: BorderRadius.md,
     height: 44,

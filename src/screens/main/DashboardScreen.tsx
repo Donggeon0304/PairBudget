@@ -916,33 +916,35 @@ const DashboardScreen: React.FC = () => {
                   )}
                 </View>
 
-                {fixedCostDetail.evidence.map((ev, idx) => (
-                  <View key={`ev-${idx}`} style={styles.fixedDetailMonth}>
-                    <View style={styles.fixedDetailMonthHeader}>
-                      <Text style={styles.fixedDetailMonthLabel}>{ev.monthLabel}</Text>
-                      {ev.transactions.length === 0 && (
-                        <Text style={styles.fixedDetailEmpty}>
-                          {idx === 0 && fixedCostDetail.isPending && fixedCostDetail.expectedDay
-                            ? `약 ${fixedCostDetail.expectedDay}일 결제 예정`
-                            : '발생 없음'}
-                        </Text>
-                      )}
-                    </View>
-                    {ev.transactions.map((tx, ti) => (
-                      <View key={`tx-${idx}-${ti}`} style={styles.fixedDetailTxRow}>
-                        <Text style={styles.fixedDetailTxDate}>
-                          {tx.date.getMonth() + 1}/{tx.date.getDate()}
-                        </Text>
-                        <Text style={styles.fixedDetailTxDesc} numberOfLines={1}>
-                          {tx.description}
-                        </Text>
-                        <Text style={styles.fixedDetailTxAmount}>
-                          {formatCurrency(tx.amount)}
-                        </Text>
+                <ScrollView style={{ maxHeight: 360 }} showsVerticalScrollIndicator={true}>
+                  {fixedCostDetail.evidence.map((ev, idx) => (
+                    <View key={`ev-${idx}`} style={styles.fixedDetailMonth}>
+                      <View style={styles.fixedDetailMonthHeader}>
+                        <Text style={styles.fixedDetailMonthLabel}>{ev.monthLabel}</Text>
+                        {ev.transactions.length === 0 && (
+                          <Text style={styles.fixedDetailEmpty}>
+                            {idx === 0 && fixedCostDetail.isPending && fixedCostDetail.expectedDay
+                              ? `약 ${fixedCostDetail.expectedDay}일 결제 예정`
+                              : '발생 없음'}
+                          </Text>
+                        )}
                       </View>
-                    ))}
-                  </View>
-                ))}
+                      {ev.transactions.map((tx, ti) => (
+                        <View key={`tx-${idx}-${ti}`} style={styles.fixedDetailTxRow}>
+                          <Text style={styles.fixedDetailTxDate}>
+                            {tx.date.getMonth() + 1}/{tx.date.getDate()}
+                          </Text>
+                          <Text style={styles.fixedDetailTxDesc} numberOfLines={1}>
+                            {tx.description}
+                          </Text>
+                          <Text style={styles.fixedDetailTxAmount}>
+                            {formatCurrency(tx.amount)}
+                          </Text>
+                        </View>
+                      ))}
+                    </View>
+                  ))}
+                </ScrollView>
 
                 {/* 고정비 관리 버튼 */}
                 <View style={styles.fixedDetailActions}>
@@ -977,65 +979,41 @@ const DashboardScreen: React.FC = () => {
                       <Text style={[styles.fixedDetailActionText, { color: Colors.Expense }]}>등록 해제</Text>
                     </TouchableOpacity>
                   ) : (
-                    <>
-                      <TouchableOpacity
-                        style={[styles.fixedDetailActionBtn, { borderColor: Colors.Primary }]}
-                        onPress={async () => {
-                          try {
-                            await pinFixedCost(user!.householdId!, {
-                              key: fixedCostDetail.preferenceKey,
-                              displayName: fixedCostDetail.description,
-                              categoryGroup: fixedCostDetail.categoryGroup,
-                              categoryName: fixedCostDetail.categoryName,
-                              categoryIcon: fixedCostDetail.categoryIcon,
-                            });
-                            setFixedCostDetail(null);
-                            loadFixedCosts();
-                            showAlert({ title: '등록 완료', message: `"${fixedCostDetail.description}"을(를) 고정비로 등록했습니다.`, icon: 'success' });
-                          } catch {
-                            showAlert({ title: '오류', message: '처리 중 문제가 발생했습니다.' });
-                          }
-                        }}
-                      >
-                        <Icon name="pin" size={16} color={Colors.Primary} />
-                        <Text style={[styles.fixedDetailActionText, { color: Colors.Primary }]}>고정비로 등록</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={[styles.fixedDetailActionBtn, { borderColor: Colors.TextMuted }]}
-                        onPress={() => {
-                          showAlert({
-                            title: '고정비에서 제외',
-                            message: `"${fixedCostDetail.description}"을(를) 고정비에서 제외하시겠습니까?\n설정에서 다시 복원할 수 있습니다.`,
-                            icon: 'warning',
-                            buttons: [
-                              { text: '취소', style: 'cancel' },
-                              {
-                                text: '제외',
-                                style: 'destructive',
-                                onPress: async () => {
-                                  try {
-                                    await dismissFixedCost(user!.householdId!, {
-                                      key: fixedCostDetail.preferenceKey,
-                                      displayName: fixedCostDetail.description,
-                                      categoryGroup: fixedCostDetail.categoryGroup,
-                                      categoryName: fixedCostDetail.categoryName,
-                                      categoryIcon: fixedCostDetail.categoryIcon,
-                                    });
-                                    setFixedCostDetail(null);
-                                    loadFixedCosts();
-                                  } catch {
-                                    showAlert({ title: '오류', message: '처리 중 문제가 발생했습니다.' });
-                                  }
-                                },
+                    <TouchableOpacity
+                      style={[styles.fixedDetailActionBtn, { borderColor: Colors.TextMuted }]}
+                      onPress={() => {
+                        showAlert({
+                          title: '고정비에서 제외',
+                          message: `"${fixedCostDetail.description}"을(를) 고정비에서 제외하시겠습니까?\n설정에서 다시 복원할 수 있습니다.`,
+                          icon: 'warning',
+                          buttons: [
+                            { text: '취소', style: 'cancel' },
+                            {
+                              text: '제외',
+                              style: 'destructive',
+                              onPress: async () => {
+                                try {
+                                  await dismissFixedCost(user!.householdId!, {
+                                    key: fixedCostDetail.preferenceKey,
+                                    displayName: fixedCostDetail.description,
+                                    categoryGroup: fixedCostDetail.categoryGroup,
+                                    categoryName: fixedCostDetail.categoryName,
+                                    categoryIcon: fixedCostDetail.categoryIcon,
+                                  });
+                                  setFixedCostDetail(null);
+                                  loadFixedCosts();
+                                } catch {
+                                  showAlert({ title: '오류', message: '처리 중 문제가 발생했습니다.' });
+                                }
                               },
-                            ],
-                          });
-                        }}
-                      >
-                        <Icon name="eye-off-outline" size={16} color={Colors.TextMuted} />
-                        <Text style={[styles.fixedDetailActionText, { color: Colors.TextMuted }]}>제외</Text>
-                      </TouchableOpacity>
-                    </>
+                            },
+                          ],
+                        });
+                      }}
+                    >
+                      <Icon name="eye-off-outline" size={16} color={Colors.TextMuted} />
+                      <Text style={[styles.fixedDetailActionText, { color: Colors.TextMuted }]}>고정비에서 제외</Text>
+                    </TouchableOpacity>
                   )}
                 </View>
               </>

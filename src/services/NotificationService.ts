@@ -227,15 +227,33 @@ async function headlessNotificationHandler(rawNotification: any): Promise<void> 
   // 학습된 카테고리 매핑 로드
   await initCategoryMapper();
 
-  let rawText = '';
-  const bigText = notification.bigText?.trim();
-  const text = notification.text?.trim();
-  const title = notification.title?.trim();
+  const title = notification.title?.trim() || '';
+  const titleBig = notification.titleBig?.trim() || '';
+  const text = notification.text?.trim() || '';
+  const bigText = notification.bigText?.trim() || '';
+  const subText = notification.subText?.trim() || '';
+  const summaryText = notification.summaryText?.trim() || '';
+  const extraInfoText = notification.extraInfoText?.trim() || '';
 
-  if (bigText) {
-    rawText = bigText;
-  } else if (text) {
-    rawText = text;
+  // 그룹/묶음 알림 라인들 (InboxStyle)
+  const groupedLines = Array.isArray(notification.groupedMessages)
+    ? notification.groupedMessages.map((g: any) => (typeof g === 'string' ? g : g?.text || '')).filter(Boolean).join(' ')
+    : '';
+
+  let rawText = bigText || text || '';
+
+  // subText, summaryText, extraInfoText 등에 은행 내부 계좌번호나 카드 번호가 들어있는 경우가 많음 (예: subText: "카카오뱅크 3333-**", "체크카드(1234)")
+  if (subText && !rawText.includes(subText)) {
+    rawText = subText + ' ' + rawText;
+  }
+  if (summaryText && !rawText.includes(summaryText)) {
+    rawText = summaryText + ' ' + rawText;
+  }
+  if (extraInfoText && !rawText.includes(extraInfoText)) {
+    rawText = extraInfoText + ' ' + rawText;
+  }
+  if (groupedLines && !rawText.includes(groupedLines)) {
+    rawText = rawText + ' ' + groupedLines;
   }
 
   // 카카오톡 필터링: 알림 발신자(title)가 금융 채널 화이트리스트에 없으면 무시
@@ -245,9 +263,10 @@ async function headlessNotificationHandler(rawNotification: any): Promise<void> 
     }
   }
 
-  if (title && rawText && !rawText.includes(title)) {
-    const skipTitles = ['알림', '거래알림', '거래 알림', '카카오뱅크', 'NH농협', 'KB국민', '토스', '신한'];
-    if (!skipTitles.some(s => title === s || title.startsWith(s))) {
+  if (title && !rawText.includes(title)) {
+    // 순수 은행명 단독일 때만 스킵하고, 번호/별칭이 붙어있으면 본문에 포함
+    const exactSkipTitles = ['알림', '거래알림', '거래 알림', '카카오뱅크', 'NH농협', 'KB국민', '토스', '신한', '우리', '하나'];
+    if (!exactSkipTitles.includes(title)) {
       rawText = title + ' ' + rawText;
     }
   }
@@ -317,9 +336,22 @@ async function headlessNotificationHandler(rawNotification: any): Promise<void> 
       : undefined;
   }
 
-  // 공동 통장 여부 자동 판별
+  // 공동 통장 여부 자동 판별 (title, subText, bigText, text, rawText 어디에 번호가 있어도 감지)
+  const fullTextToMatch = [
+    notification?.title,
+    notification?.subText,
+    notification?.bigText,
+    notification?.text,
+    rawText,
+  ].filter(Boolean).join(' ');
+
   const coupleBanks = await getCoupleAccountBanks();
-  const isCouple = coupleBanks.includes(packageName);
+  const isCouple = coupleBanks.some(entry => {
+    const [pkg, keyword] = entry.split(':');
+    if (pkg !== packageName) return false;
+    if (!keyword) return true;
+    return fullTextToMatch.includes(keyword);
+  });
 
   // 이미 승인(등록)된 거래인지 확인 (등록 후 다른 앱에서 같은 거래 알림이 들어오는 경우 방지)
   if (parsed.amount && await isAlreadyApproved(parsed.amount, parsed.cardIssuer || '', parsed.dateTime || '')) {

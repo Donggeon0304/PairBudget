@@ -131,28 +131,35 @@ const PRESET_AVATARS = [
   { id: 'penguin', emoji: '🐧', label: '펭귄' },
 ];
 
-/** 지원 은행 목록 */
-const SUPPORTED_BANKS = [
-  { packageName: 'com.kbstar.kbank', name: 'KB국민', color: '#FFB300', initial: 'KB' },
-  { packageName: 'com.shinhan.sbanking', name: '신한', color: '#0046FF', initial: '신한' },
-  { packageName: 'com.wooribank.pib.smart', name: '우리', color: '#0066B3', initial: '우리' },
-  { packageName: 'com.hanabank.ebk.channel.android.hananbank', name: '하나', color: '#009B8D', initial: '하나' },
-  { packageName: 'com.nonghyup.banking', name: 'NH농협', color: '#00A651', initial: 'NH' },
-  { packageName: 'com.kakaobank.channel', name: '카카오뱅크', color: '#FFEB00', initial: '카뱅' },
-  { packageName: 'viva.republica.toss', name: '토스', color: '#0064FF', initial: '토스' },
-  { packageName: 'com.ibk.neobanking', name: 'IBK기업', color: '#004B8D', initial: 'IBK' },
-  { packageName: 'com.scbank.ma30', name: 'SC제일', color: '#0072AA', initial: 'SC' },
-  { packageName: 'com.kdb.staron', name: 'KDB산업', color: '#003478', initial: 'KDB' },
-  { packageName: 'com.su.banking', name: '수협', color: '#005BAC', initial: '수협' },
-  { packageName: 'com.dgb.smart', name: 'DGB대구', color: '#007BC0', initial: 'DGB' },
-  { packageName: 'com.bnk.bfg', name: 'BNK부산', color: '#ED1C24', initial: 'BNK' },
-  { packageName: 'com.knb.psb', name: '경남', color: '#D2232A', initial: '경남' },
-  { packageName: 'com.jeonbukbank.jb', name: 'JB전북', color: '#00954E', initial: 'JB' },
-  { packageName: 'com.kjbank.goldwing', name: '광주', color: '#0072BC', initial: '광주' },
-  { packageName: 'com.shinhancard.smartshinhan', name: '신한카드', color: '#0046FF', initial: '신카' },
-  { packageName: 'com.lotte.lottemembers', name: '롯데카드', color: '#ED1C24', initial: '롯데' },
-  { packageName: 'com.hyundaicard.appcard', name: '현대카드', color: '#000000', initial: '현카' },
-  { packageName: 'com.samsungcard.mpocket', name: '삼성카드', color: '#0C4DA2', initial: '삼카' },
+/** 지원 은행 및 카드사 목록 */
+const SUPPORTED_BANKS: { packageName: string; name: string; color: string; initial: string; type: 'bank' | 'card' }[] = [
+  // 은행
+  { packageName: 'com.kakaobank.channel', name: '카카오뱅크', color: '#FFEB00', initial: '카뱅', type: 'bank' },
+  { packageName: 'viva.republica.toss', name: '토스뱅크', color: '#0064FF', initial: '토스', type: 'bank' },
+  { packageName: 'com.kbstar.kbank', name: 'KB국민은행', color: '#FFB300', initial: 'KB', type: 'bank' },
+  { packageName: 'com.shinhan.sbanking', name: '신한은행', color: '#0046FF', initial: '신한', type: 'bank' },
+  { packageName: 'com.wooribank.pib.smart', name: '우리은행', color: '#0066B3', initial: '우리', type: 'bank' },
+  { packageName: 'com.hanabank.ebk.channel.android.hananbank', name: '하나은행', color: '#009B8D', initial: '하나', type: 'bank' },
+  { packageName: 'com.nonghyup.banking', name: 'NH농협은행', color: '#00A651', initial: 'NH', type: 'bank' },
+  { packageName: 'com.ibk.neobanking', name: 'IBK기업은행', color: '#004B8D', initial: 'IBK', type: 'bank' },
+  { packageName: 'com.scbank.ma30', name: 'SC제일은행', color: '#0072AA', initial: 'SC', type: 'bank' },
+  { packageName: 'com.kdb.staron', name: 'KDB산업은행', color: '#003478', initial: 'KDB', type: 'bank' },
+  { packageName: 'com.su.banking', name: '수협은행', color: '#005BAC', initial: '수협', type: 'bank' },
+  { packageName: 'com.dgb.smart', name: 'DGB대구은행', color: '#007BC0', initial: 'DGB', type: 'bank' },
+  { packageName: 'com.bnk.bfg', name: 'BNK부산은행', color: '#ED1C24', initial: 'BNK', type: 'bank' },
+  { packageName: 'com.knb.psb', name: 'BNK경남은행', color: '#D2232A', initial: '경남', type: 'bank' },
+  { packageName: 'com.jeonbukbank.jb', name: 'JB전북은행', color: '#00954E', initial: 'JB', type: 'bank' },
+  { packageName: 'com.kjbank.goldwing', name: '광주은행', color: '#0072BC', initial: '광주', type: 'bank' },
+  // 카드사
+  { packageName: 'com.shinhancard.smartshinhan', name: '신한카드', color: '#0046FF', initial: '신카', type: 'card' },
+  { packageName: 'com.kbcard.cxh.appcard', name: 'KB국민카드', color: '#5C5047', initial: '국카', type: 'card' },
+  { packageName: 'com.samsungcard.mpocket', name: '삼성카드', color: '#0C4DA2', initial: '삼카', type: 'card' },
+  { packageName: 'com.hyundaicard.appcard', name: '현대카드', color: '#000000', initial: '현카', type: 'card' },
+  { packageName: 'com.lotte.lottemembers', name: '롯데카드', color: '#ED1C24', initial: '롯데', type: 'card' },
+  { packageName: 'com.wooricard.smartapp', name: '우리카드', color: '#0066B3', initial: '우카', type: 'card' },
+  { packageName: 'com.hanaskcard.paycla', name: '하나카드', color: '#009B8D', initial: '하카', type: 'card' },
+  { packageName: 'nh.smart.card', name: 'NH농협카드', color: '#FFB300', initial: '농카', type: 'card' },
+  { packageName: 'com.bccard.mobilecard', name: 'BC카드', color: '#ED1C24', initial: 'BC', type: 'card' },
 ];
 
 /** Get avatar emoji or first character of displayName */
@@ -197,9 +204,12 @@ const SettingsScreen: React.FC = () => {
 
   const [coupleBankModalVisible, setCoupleBankModalVisible] = useState(false);
   const [selectedBanks, setSelectedBanks] = useState<string[]>(household?.coupleAccountBanks || []);
+  const [bankTab, setBankTab] = useState<'all' | 'bank' | 'card'>('all');
+  const [coupleAccountItems, setCoupleAccountItems] = useState<{ id: string; packageName: string; keyword: string }[]>([]);
 
   const [fixedCostExcludeModalVisible, setFixedCostExcludeModalVisible] = useState(false);
   const [excludeCategories, setExcludeCategories] = useState<ExcludeCategorySetting[]>([]);
+  const [expandedExcludeGroups, setExpandedExcludeGroups] = useState<Set<string>>(new Set());
 
   const [fixedCostPrefModalVisible, setFixedCostPrefModalVisible] = useState(false);
   const [fixedCostPrefs, setFixedCostPrefs] = useState<Record<string, FixedCostPreference>>({});
@@ -600,29 +610,63 @@ const SettingsScreen: React.FC = () => {
     }
   };
 
-  // 공동 통장 은행
+  // 공동 통장/카드 관리
   const handleOpenCoupleBankModal = () => {
-    setSelectedBanks(household?.coupleAccountBanks || []);
+    const rawList = household?.coupleAccountBanks || [];
+    const items = rawList.map((entry, idx) => {
+      const [packageName, ...rest] = entry.split(':');
+      return {
+        id: `${packageName}_${idx}_${Date.now()}`,
+        packageName,
+        keyword: rest.join(':'),
+      };
+    });
+    setCoupleAccountItems(items);
+    setBankTab('all');
     setCoupleBankModalVisible(true);
   };
 
   const handleToggleBank = (packageName: string) => {
-    setSelectedBanks(prev =>
-      prev.includes(packageName)
-        ? prev.filter(p => p !== packageName)
-        : [...prev, packageName],
+    setCoupleAccountItems(prev => {
+      const exists = prev.some(item => item.packageName === packageName);
+      if (exists) {
+        return prev.filter(item => item.packageName !== packageName);
+      } else {
+        return [
+          ...prev,
+          {
+            id: `${packageName}_${Date.now()}`,
+            packageName,
+            keyword: '',
+          },
+        ];
+      }
+    });
+  };
+
+  const handleUpdateBankKeyword = (id: string, keyword: string) => {
+    setCoupleAccountItems(prev =>
+      prev.map(item => (item.id === id ? { ...item, keyword } : item)),
     );
+  };
+
+  const handleRemoveBankItem = (id: string) => {
+    setCoupleAccountItems(prev => prev.filter(item => item.id !== id));
   };
 
   const handleSaveCoupleBanks = async () => {
     try {
-      await setCoupleAccountBanks(selectedBanks);
-      await saveCoupleAccountBanks(selectedBanks); // AsyncStorage 캐싱 (headless task용)
+      const serialized = coupleAccountItems.map(item =>
+        item.keyword.trim() ? `${item.packageName}:${item.keyword.trim()}` : item.packageName,
+      );
+      setSelectedBanks(serialized);
+      await setCoupleAccountBanks(serialized);
+      await saveCoupleAccountBanks(serialized); // AsyncStorage 캐싱 (headless task용)
       setCoupleBankModalVisible(false);
-      showAlert({ title: '완료', message: '공동 통장 은행이 저장되었습니다.', icon: 'success' });
+      showAlert({ title: '완료', message: '공동 통장/카드가 저장되었습니다.', icon: 'success' });
     } catch (error) {
-      console.error('공동 통장 은행 저장 실패:', error);
-      showAlert({ title: '오류', message: '공동 통장 은행 저장에 실패했습니다.', icon: 'error' });
+      console.error('공동 통장/카드 저장 실패:', error);
+      showAlert({ title: '오류', message: '공동 통장/카드 저장에 실패했습니다.', icon: 'error' });
     }
   };
 
@@ -1100,78 +1144,276 @@ const SettingsScreen: React.FC = () => {
     </Modal>
   );
 
-  const renderCoupleBankModal = () => (
-    <Modal
-      visible={coupleBankModalVisible}
-      transparent
-      animationType="slide"
-      onRequestClose={() => setCoupleBankModalVisible(false)}
-    >
-      <View style={styles.modalOverlay}>
-        <View style={[styles.modalContainer, styles.categoryModalContainer]}>
-          <View style={styles.categoryModalHeader}>
-            <Text style={styles.modalTitle}>공동 통장 은행 선택</Text>
-            <TouchableOpacity onPress={() => setCoupleBankModalVisible(false)}>
-              <Icon name="close" size={24} color={Colors.TextSecondary} />
-            </TouchableOpacity>
-          </View>
+  const renderCoupleBankModal = () => {
+    const filteredBanks = SUPPORTED_BANKS.filter(
+      b => bankTab === 'all' || b.type === bankTab,
+    );
 
-          <ScrollView style={styles.categoryList} showsVerticalScrollIndicator={false}>
-            {SUPPORTED_BANKS.map(bank => {
-              const isSelected = selectedBanks.includes(bank.packageName);
-              return (
-                <TouchableOpacity
-                  key={bank.packageName}
-                  style={styles.bankRow}
-                  onPress={() => handleToggleBank(bank.packageName)}
-                  activeOpacity={0.6}
-                >
-                  <View style={styles.categoryRowLeft}>
-                    <View style={{
-                      width: 36,
-                      height: 36,
-                      borderRadius: 18,
-                      backgroundColor: bank.color + '20',
-                      justifyContent: 'center',
-                      alignItems: 'center',
-                      marginRight: 12,
-                    }}>
-                      <Text style={{
-                        fontSize: 12,
-                        fontWeight: '800',
-                        color: bank.color,
-                      }}>{bank.initial}</Text>
-                    </View>
-                    <Text style={styles.categoryName}>{bank.name}</Text>
+    return (
+      <Modal
+        visible={coupleBankModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setCoupleBankModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContainer, styles.categoryModalContainer, { maxHeight: '88%' }]}>
+            <View style={styles.categoryModalHeader}>
+              <View>
+                <Text style={styles.modalTitle}>공동 계좌 / 카드 설정</Text>
+                <Text style={{ fontSize: 12, color: Colors.TextMuted, marginTop: 2 }}>
+                  등록된 알림은 공동으로 자동 분류됩니다
+                </Text>
+              </View>
+              <TouchableOpacity onPress={() => setCoupleBankModalVisible(false)}>
+                <Icon name="close" size={24} color={Colors.TextSecondary} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
+              {/* ── 1. 상단: 선택된 공동 계좌/카드 목록 ── */}
+              <View style={{ paddingHorizontal: 16, marginTop: 8, marginBottom: 16 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                  <Text style={{ fontSize: 14, fontWeight: '700', color: Colors.Text }}>
+                    선택된 목록 ({coupleAccountItems.length}개)
+                  </Text>
+                  {coupleAccountItems.length > 0 && (
+                    <TouchableOpacity onPress={() => setCoupleAccountItems([])}>
+                      <Text style={{ fontSize: 12, color: Colors.Danger, fontWeight: '600' }}>전체 해제</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+
+                {coupleAccountItems.length === 0 ? (
+                  <View style={{
+                    paddingVertical: 18,
+                    paddingHorizontal: 16,
+                    borderRadius: BorderRadius.md,
+                    backgroundColor: Colors.Surface,
+                    borderWidth: 1,
+                    borderStyle: 'dashed',
+                    borderColor: Colors.CardBorder,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}>
+                    <Icon name="card-outline" size={24} color={Colors.TextMuted} style={{ marginBottom: 6 }} />
+                    <Text style={{ fontSize: 13, color: Colors.TextMuted, textAlign: 'center' }}>
+                      선택된 금융사가 없습니다.{'\n'}아래 목록에서 터치하여 추가해주세요.
+                    </Text>
                   </View>
-                  <Icon
-                    name={isSelected ? 'checkmark-circle' : 'ellipse-outline'}
-                    size={24}
-                    color={isSelected ? Colors.Primary : Colors.TextMuted}
-                  />
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
+                ) : (
+                  <View style={{ gap: 8 }}>
+                    {coupleAccountItems.map(item => {
+                      const bankInfo = SUPPORTED_BANKS.find(b => b.packageName === item.packageName) || {
+                        name: item.packageName,
+                        color: Colors.Primary,
+                        initial: '?',
+                      };
+                      return (
+                        <View
+                          key={item.id}
+                          style={{
+                            backgroundColor: Colors.Surface,
+                            borderRadius: BorderRadius.md,
+                            borderWidth: 1.5,
+                            borderColor: Colors.Primary + '40',
+                            padding: 12,
+                            shadowColor: '#000',
+                            shadowOffset: { width: 0, height: 2 },
+                            shadowOpacity: 0.05,
+                            shadowRadius: 4,
+                            elevation: 2,
+                          }}
+                        >
+                          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                              <View style={{
+                                width: 32,
+                                height: 32,
+                                borderRadius: 16,
+                                backgroundColor: bankInfo.color + '25',
+                                justifyContent: 'center',
+                                alignItems: 'center',
+                                marginRight: 10,
+                              }}>
+                                <Text style={{ fontSize: 11, fontWeight: '800', color: bankInfo.color }}>
+                                  {bankInfo.initial}
+                                </Text>
+                              </View>
+                              <Text style={{ fontSize: 15, fontWeight: '700', color: Colors.Text }}>
+                                {bankInfo.name}
+                              </Text>
+                            </View>
+                            <TouchableOpacity
+                              onPress={() => handleRemoveBankItem(item.id)}
+                              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            >
+                              <Icon name="close-circle" size={20} color={Colors.TextMuted} />
+                            </TouchableOpacity>
+                          </View>
 
-          <View style={styles.modalButtonRow}>
-            <TouchableOpacity
-              style={styles.modalCancelBtn}
-              onPress={() => setCoupleBankModalVisible(false)}
-            >
-              <Text style={styles.modalCancelText}>취소</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.modalConfirmBtn}
-              onPress={handleSaveCoupleBanks}
-            >
-              <Text style={styles.modalConfirmText}>저장</Text>
-            </TouchableOpacity>
+                          {/* 식별 번호 (선택) */}
+                          <View style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            marginTop: 10,
+                            backgroundColor: Colors.Background,
+                            borderRadius: BorderRadius.sm,
+                            paddingHorizontal: 10,
+                            paddingVertical: 4,
+                            borderWidth: 1,
+                            borderColor: Colors.Divider,
+                          }}>
+                            <Icon name="key-outline" size={14} color={Colors.TextMuted} style={{ marginRight: 6 }} />
+                            <TextInput
+                              style={{
+                                flex: 1,
+                                fontSize: 13,
+                                color: Colors.Text,
+                                paddingVertical: 4,
+                              }}
+                              placeholder="카드/계좌 끝 4자리 (선택 - 개인/공동 구분용)"
+                              placeholderTextColor={Colors.TextMuted}
+                              value={item.keyword}
+                              onChangeText={val => handleUpdateBankKeyword(item.id, val)}
+                              maxLength={10}
+                            />
+                            {item.keyword ? (
+                              <TouchableOpacity onPress={() => handleUpdateBankKeyword(item.id, '')}>
+                                <Icon name="close" size={14} color={Colors.TextMuted} />
+                              </TouchableOpacity>
+                            ) : null}
+                          </View>
+                        </View>
+                      );
+                    })}
+                  </View>
+                )}
+              </View>
+
+              {/* ── 2. 중간: 탭 선택 (전체 / 은행 / 카드) ── */}
+              <View style={{
+                flexDirection: 'row',
+                marginHorizontal: 16,
+                marginBottom: 12,
+                backgroundColor: Colors.Background,
+                borderRadius: BorderRadius.sm,
+                padding: 3,
+              }}>
+                {(['all', 'bank', 'card'] as const).map(tab => (
+                  <TouchableOpacity
+                    key={tab}
+                    style={{
+                      flex: 1,
+                      paddingVertical: 7,
+                      alignItems: 'center',
+                      borderRadius: BorderRadius.sm - 2,
+                      backgroundColor: bankTab === tab ? Colors.Surface : 'transparent',
+                      shadowColor: bankTab === tab ? '#000' : 'transparent',
+                      shadowOffset: { width: 0, height: 1 },
+                      shadowOpacity: 0.1,
+                      shadowRadius: 2,
+                      elevation: bankTab === tab ? 2 : 0,
+                    }}
+                    onPress={() => setBankTab(tab)}
+                  >
+                    <Text style={{
+                      fontSize: 13,
+                      fontWeight: bankTab === tab ? '700' : '500',
+                      color: bankTab === tab ? Colors.Primary : Colors.TextMuted,
+                    }}>
+                      {tab === 'all' ? '전체' : tab === 'bank' ? '은행' : '카드사'}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              {/* ── 3. 하단: 금융사 목록 ── */}
+              <View style={{ paddingHorizontal: 16, paddingBottom: 16 }}>
+                <Text style={{ fontSize: 12, color: Colors.TextMuted, marginBottom: 8 }}>
+                  터치하여 공동 통장/카드로 추가하세요
+                </Text>
+                <View style={{ gap: 6 }}>
+                  {filteredBanks.map(bank => {
+                    const isSelected = coupleAccountItems.some(
+                      item => item.packageName === bank.packageName,
+                    );
+                    return (
+                      <TouchableOpacity
+                        key={bank.packageName}
+                        style={{
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          paddingVertical: 10,
+                          paddingHorizontal: 14,
+                          borderRadius: BorderRadius.md,
+                          backgroundColor: isSelected ? Colors.Primary + '10' : Colors.Surface,
+                          borderWidth: 1,
+                          borderColor: isSelected ? Colors.Primary + '60' : Colors.Divider,
+                        }}
+                        onPress={() => handleToggleBank(bank.packageName)}
+                        activeOpacity={0.6}
+                      >
+                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                          <View style={{
+                            width: 32,
+                            height: 32,
+                            borderRadius: 16,
+                            backgroundColor: bank.color + '20',
+                            justifyContent: 'center',
+                            alignItems: 'center',
+                            marginRight: 10,
+                          }}>
+                            <Text style={{
+                              fontSize: 11,
+                              fontWeight: '800',
+                              color: bank.color,
+                            }}>
+                              {bank.initial}
+                            </Text>
+                          </View>
+                          <Text style={{
+                            fontSize: 14,
+                            fontWeight: isSelected ? '700' : '500',
+                            color: isSelected ? Colors.Primary : Colors.Text,
+                          }}>
+                            {bank.name}
+                          </Text>
+                        </View>
+                        <Icon
+                          name={isSelected ? 'checkmark-circle' : 'add-circle-outline'}
+                          size={22}
+                          color={isSelected ? Colors.Primary : Colors.TextMuted}
+                        />
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+            </ScrollView>
+
+            <View style={styles.modalButtonRow}>
+              <TouchableOpacity
+                style={styles.modalCancelBtn}
+                onPress={() => setCoupleBankModalVisible(false)}
+              >
+                <Text style={styles.modalCancelText}>취소</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.modalConfirmBtn}
+                onPress={handleSaveCoupleBanks}
+              >
+                <Text style={styles.modalConfirmText}>
+                  저장 {coupleAccountItems.length > 0 ? `(${coupleAccountItems.length})` : ''}
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
-      </View>
-    </Modal>
-  );
+      </Modal>
+    );
+  };
 
   const renderFixedCostExcludeModal = () => {
     // 지출 카테고리만, 그룹별로 묶기
@@ -1212,8 +1454,8 @@ const SettingsScreen: React.FC = () => {
 
                 return (
                   <View key={group}>
-                    {/* 그룹 헤더 (전체 체크) */}
-                    <TouchableOpacity
+                    {/* 그룹 헤더 (체크 + 접기/펼치기) */}
+                    <View
                       style={{
                         flexDirection: 'row',
                         alignItems: 'center',
@@ -1223,23 +1465,46 @@ const SettingsScreen: React.FC = () => {
                         borderBottomWidth: 1,
                         borderBottomColor: Colors.Divider,
                       }}
-                      onPress={() => toggleExcludeGroup(group)}
                     >
-                      <Icon
-                        name={isFullExclude ? 'checkbox' : isPartial ? 'remove-circle' : 'square-outline'}
-                        size={22}
-                        color={isFullExclude || isPartial ? Colors.Primary : Colors.TextMuted}
-                      />
-                      <Text style={{ flex: 1, fontSize: 15, fontWeight: '700', color: Colors.Text, marginLeft: 10 }}>
-                        {group}
-                      </Text>
-                      <Text style={{ fontSize: 12, color: Colors.TextMuted }}>
-                        {groupCats.length}개
-                      </Text>
-                    </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() => toggleExcludeGroup(group)}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      >
+                        <Icon
+                          name={isFullExclude ? 'checkbox' : isPartial ? 'remove-circle' : 'square-outline'}
+                          size={22}
+                          color={isFullExclude || isPartial ? Colors.Primary : Colors.TextMuted}
+                        />
+                      </TouchableOpacity>
 
-                    {/* 소카테고리 목록 */}
-                    {groupCats.sort((a, b) => a.order - b.order).map(cat => {
+                      <TouchableOpacity
+                        style={{ flex: 1, flexDirection: 'row', alignItems: 'center', marginLeft: 10 }}
+                        onPress={() => {
+                          setExpandedExcludeGroups(prev => {
+                            const next = new Set(prev);
+                            if (next.has(group)) next.delete(group);
+                            else next.add(group);
+                            return next;
+                          });
+                        }}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={{ flex: 1, fontSize: 15, fontWeight: '700', color: Colors.Text }}>
+                          {group}
+                        </Text>
+                        <Text style={{ fontSize: 12, color: Colors.TextMuted, marginRight: 6 }}>
+                          {groupCats.length}개
+                        </Text>
+                        <Icon
+                          name={expandedExcludeGroups.has(group) ? 'chevron-up' : 'chevron-down'}
+                          size={18}
+                          color={Colors.TextMuted}
+                        />
+                      </TouchableOpacity>
+                    </View>
+
+                    {/* 소카테고리 목록 (펼쳐졌을 때만) */}
+                    {expandedExcludeGroups.has(group) && groupCats.sort((a, b) => a.order - b.order).map(cat => {
                       const checked = isSubcategoryExcluded(group, cat.name);
                       return (
                         <TouchableOpacity
@@ -1249,7 +1514,7 @@ const SettingsScreen: React.FC = () => {
                             alignItems: 'center',
                             paddingVertical: 10,
                             paddingHorizontal: 16,
-                            paddingLeft: 32,
+                            paddingLeft: 36,
                             borderBottomWidth: 1,
                             borderBottomColor: Colors.Divider,
                           }}

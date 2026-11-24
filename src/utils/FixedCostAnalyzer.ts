@@ -314,18 +314,26 @@ export async function analyzeFixedCosts(
       if (isExcluded) return;
     }
 
-    // 최소 2개월 발생 필수 (pin이면 1개월도 OK)
-    const monthsPresent = data.monthly.filter(m => m.count > 0).length;
-    if (!isPinned && monthsPresent < 2) return;
-    if (isPinned && monthsPresent < 1) return;
+    // 최소 연속 2개월 발생 필수 (pin이면 1개월도 OK)
+    // 9월 발생, 10월 미발생, 11월 발생 처럼 중간에 빠진(퐁당퐁당) 항목은 제외!
+    if (!isPinned) {
+      const hasM0 = data.monthly[0].count > 0;
+      const hasM1 = data.monthly[1].count > 0;
+      const hasM2 = data.monthly[2].count > 0;
 
-    // 현재 월(index 0) 미발생 시
-    if (data.monthly[0].count === 0) {
-      if (!isCurrentMonthActual) {
-        // 과거 월을 보고 있는데 발생 없음 → pin이 아니면 제외
-        if (!isPinned) return;
+      if (hasM0) {
+        // 이번 달에 발생한 경우: 직전 달(M-1)에도 반드시 발생했어야 연속 2개월 인정
+        if (!hasM1) return;
+      } else {
+        // 이번 달에 아직 미발생인 경우:
+        // 과거 월 조회 중이면 탈락
+        if (!isCurrentMonthActual) return;
+        // 현재 월(진행 중)이면 직전 2개월(M-1과 M-2) 모두 연속 발생했어야 결제 예정으로 인정
+        if (!hasM1 || !hasM2) return;
       }
-      // 이번 달에 아직 미발생이어도, 이전 달에 발생했으면 고정비로 유지
+    } else {
+      const monthsPresent = data.monthly.filter(m => m.count > 0).length;
+      if (monthsPresent < 1) return;
     }
 
     // 각 월의 합계 (표시용)
@@ -455,9 +463,17 @@ export async function analyzeFixedCosts(
 
   // 카테고리별 CV 계산 & 고정비 추가
   Object.entries(catMap).forEach(([catKey, catData]) => {
-    // 최소 2개월 발생
-    const catMonthsPresent = catData.monthly.filter(m => m.amounts.length > 0).length;
-    if (catMonthsPresent < 2) return;
+    // 최소 연속 2개월 발생 필수 (퐁당퐁당 제외)
+    const hasCatM0 = catData.monthly[0].amounts.length > 0;
+    const hasCatM1 = catData.monthly[1].amounts.length > 0;
+    const hasCatM2 = catData.monthly[2].amounts.length > 0;
+
+    if (hasCatM0) {
+      if (!hasCatM1) return; // 이번 달 발생 시 직전 달에도 반드시 발생했어야 인정
+    } else {
+      if (!isCurrentMonthActual) return;
+      if (!hasCatM1 || !hasCatM2) return; // 이번 달 미발생 시 직전 2개월 연속 발생해야 인정
+    }
 
     // CV 계산 (현재 월 제외)
     const cvCatData = isCurrentMonthActual
