@@ -20,6 +20,7 @@ import {
   Linking,
   Dimensions,
   ActivityIndicator,
+  TextInput,
 } from 'react-native';
 import firestore from '@react-native-firebase/firestore';
 import Icon from 'react-native-vector-icons/Ionicons';
@@ -47,6 +48,7 @@ import {
   pinFixedCost,
   dismissFixedCost,
   restoreFixedCost,
+  updateFixedCostCustomProps,
 } from '../../services/FixedCostPreferenceService';
 import ScrollToTopButton from '../../components/ScrollToTopButton';
 
@@ -127,6 +129,8 @@ const DashboardScreen: React.FC = () => {
   const [fixedCostExpanded, setFixedCostExpanded] = useState(false);
   const [expandedFixedCategories, setExpandedFixedCategories] = useState<Set<string>>(new Set());
   const [fixedCostDetail, setFixedCostDetail] = useState<FixedCostItem | null>(null);
+  const [aliasEditVisible, setAliasEditVisible] = useState(false);
+  const [aliasInput, setAliasInput] = useState('');
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(30)).current;
   const scrollRef = useRef<ScrollView>(null);
@@ -967,6 +971,19 @@ const DashboardScreen: React.FC = () => {
 
                 {/* 고정비 관리 버튼 */}
                 <View style={styles.fixedDetailActions}>
+                  <TouchableOpacity
+                    style={[styles.fixedDetailActionBtn, { borderColor: Colors.Primary, backgroundColor: Colors.Primary + '10' }]}
+                    onPress={() => {
+                      setAliasInput(fixedCostDetail.customName || '');
+                      setAliasEditVisible(true);
+                    }}
+                  >
+                    <Icon name="pencil-outline" size={16} color={Colors.Primary} />
+                    <Text style={[styles.fixedDetailActionText, { color: Colors.Primary }]}>
+                      {fixedCostDetail.customName ? '별칭 수정' : '이름(별칭) 지정'}
+                    </Text>
+                  </TouchableOpacity>
+
                   {fixedCostDetail.source === 'pinned' ? (
                     <TouchableOpacity
                       style={[styles.fixedDetailActionBtn, { borderColor: Colors.Expense }]}
@@ -1040,6 +1057,85 @@ const DashboardScreen: React.FC = () => {
           </View>
         </View>
       </Modal>
+
+      {/* 고정비 별칭 수정 모달 */}
+      {aliasEditVisible && fixedCostDetail && (
+        <Modal
+          visible={aliasEditVisible}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setAliasEditVisible(false)}
+        >
+          <View style={styles.fixedDetailOverlay}>
+            <View style={[styles.fixedDetailSheet, { padding: Spacing.lg, width: '85%', alignSelf: 'center', borderRadius: 16 }]}>
+              <Text style={{ fontSize: 16, fontWeight: '700', color: Colors.Text, marginBottom: 8 }}>
+                고정비 별칭(이름) 설정
+              </Text>
+              <Text style={{ fontSize: 12, color: Colors.TextMuted, marginBottom: 12 }}>
+                원래 적요: {fixedCostDetail.originalDescription || fixedCostDetail.description}
+              </Text>
+              <TextInput
+                style={{
+                  borderWidth: 1,
+                  borderColor: Colors.CardBorder,
+                  borderRadius: 8,
+                  paddingHorizontal: 12,
+                  paddingVertical: 10,
+                  fontSize: 14,
+                  color: Colors.Text,
+                  backgroundColor: Colors.Background,
+                  marginBottom: 8,
+                }}
+                placeholder="예: 청년도약계좌, 주택청약, 헬스장"
+                placeholderTextColor={Colors.TextMuted}
+                value={aliasInput}
+                onChangeText={setAliasInput}
+                maxLength={20}
+                autoFocus
+              />
+              <Text style={{ fontSize: 11, color: Colors.TextMuted, marginBottom: 16 }}>
+                비워두면 원래 적요명으로 복원됩니다.
+              </Text>
+              <View style={{ flexDirection: 'row', gap: 10 }}>
+                <TouchableOpacity
+                  style={{ flex: 1, paddingVertical: 10, borderRadius: 8, borderWidth: 1, borderColor: Colors.CardBorder, alignItems: 'center' }}
+                  onPress={() => setAliasEditVisible(false)}
+                >
+                  <Text style={{ fontSize: 14, color: Colors.TextSecondary, fontWeight: '600' }}>취소</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={{ flex: 1, paddingVertical: 10, borderRadius: 8, backgroundColor: Colors.Primary, alignItems: 'center' }}
+                  onPress={async () => {
+                    if (!user?.householdId) return;
+                    try {
+                      await updateFixedCostCustomProps(user.householdId, fixedCostDetail.preferenceKey, {
+                        displayName: fixedCostDetail.originalDescription || fixedCostDetail.description,
+                        customName: aliasInput.trim() || undefined,
+                        categoryGroup: fixedCostDetail.categoryGroup,
+                        categoryName: fixedCostDetail.categoryName,
+                        categoryIcon: fixedCostDetail.categoryIcon,
+                      });
+                      const updatedName = aliasInput.trim() || fixedCostDetail.originalDescription || fixedCostDetail.description;
+                      setFixedCostDetail(prev => prev ? {
+                        ...prev,
+                        description: updatedName,
+                        customName: aliasInput.trim() || undefined,
+                      } : null);
+                      setAliasEditVisible(false);
+                      loadFixedCosts();
+                      showAlert({ title: '완료', message: '고정비 별칭이 저장되었습니다.', icon: 'success' });
+                    } catch {
+                      showAlert({ title: '오류', message: '저장 중 문제가 발생했습니다.' });
+                    }
+                  }}
+                >
+                  <Text style={{ fontSize: 14, color: '#FFF', fontWeight: '700' }}>저장</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      )}
     </View>
   );
 };

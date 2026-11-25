@@ -84,6 +84,11 @@ service cloud.firestore {
         allow read: if isHouseholdMember(householdId);
         allow write: if isHouseholdMember(householdId);
       }
+
+      match /settings/{settingId} {
+        allow read: if isHouseholdMember(householdId);
+        allow write: if isHouseholdMember(householdId);
+      }
     }
   }
 }

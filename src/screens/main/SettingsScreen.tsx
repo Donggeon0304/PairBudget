@@ -17,12 +17,15 @@ import {
   Platform,
   PermissionsAndroid,
   Share,
+  ActivityIndicator,
+  Dimensions,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { Colors } from '../../theme/colors';
 import { Spacing, BorderRadius } from '../../theme/spacing';
 import { GlassCard } from '../../components/GlassCard';
 import { useAlert } from '../../components/CustomAlert';
+import CategoryIcon from '../../components/CategoryIcon';
 import { useAuth } from '../../contexts/AuthContext';
 import { useHousehold } from '../../contexts/HouseholdContext';
 import { saveCoupleAccountBanks, checkNotificationPermission, requestNotificationPermission } from '../../services/NotificationService';
@@ -30,9 +33,15 @@ import { checkForUpdate, CURRENT_VERSION_NAME } from '../../services/UpdateServi
 import { getFixedCostExcludeCategories, setFixedCostExcludeCategories, ExcludeCategorySetting } from '../../services/SecureStorage';
 import {
   loadFixedCostPreferences,
+  pinFixedCost,
   restoreFixedCost,
+  dismissFixedCost,
+  updateFixedCostCustomProps,
   FixedCostPreference,
 } from '../../services/FixedCostPreferenceService';
+import { analyzeFixedCostsDetailed, FixedCostItem } from '../../utils/FixedCostAnalyzer';
+import { formatCurrency } from '../../utils/formatCurrency';
+import { useFiscalCycle } from '../../contexts/FiscalCycleContext';
 import { DraggableList } from '../../components/DraggableList';
 import ScrollToTopButton from '../../components/ScrollToTopButton';
 import firestore from '@react-native-firebase/firestore';
@@ -226,12 +235,21 @@ const SettingsScreen: React.FC = () => {
   const [bankTab, setBankTab] = useState<'all' | 'bank' | 'card'>('all');
   const [coupleAccountItems, setCoupleAccountItems] = useState<{ id: string; packageName: string; keyword: string }[]>([]);
 
+  const fiscalCycle = useFiscalCycle();
   const [fixedCostExcludeModalVisible, setFixedCostExcludeModalVisible] = useState(false);
   const [excludeCategories, setExcludeCategories] = useState<ExcludeCategorySetting[]>([]);
   const [expandedExcludeGroups, setExpandedExcludeGroups] = useState<Set<string>>(new Set());
 
   const [fixedCostPrefModalVisible, setFixedCostPrefModalVisible] = useState(false);
   const [fixedCostPrefs, setFixedCostPrefs] = useState<Record<string, FixedCostPreference>>({});
+  const [activeFixedCosts, setActiveFixedCosts] = useState<FixedCostItem[]>([]);
+  const [candidateFixedCosts, setCandidateFixedCosts] = useState<FixedCostItem[]>([]);
+  const [fixedCostLoading, setFixedCostLoading] = useState(false);
+  const [fixedCostTab, setFixedCostTab] = useState<'active' | 'candidates' | 'dismissed'>('active');
+  const [editingItem, setEditingItem] = useState<FixedCostItem | null>(null);
+  const [aliasInput, setAliasInput] = useState('');
+  const [selectedEditCategory, setSelectedEditCategory] = useState<{ group: string; name: string; icon: string } | null>(null);
+  const [categoryPickerVisible, setCategoryPickerVisible] = useState(false);
 
   const [memberProfiles, setMemberProfiles] = useState<{uid: string; displayName: string; photoURL?: string}[]>([]);
 
@@ -761,19 +779,164 @@ const SettingsScreen: React.FC = () => {
     showAlert({ title: '완료', message: '고정비 제외 카테고리가 저장되었습니다.', icon: 'success' });
   };
 
-  // ── 고정비 관리 (pin/dismiss) ──
-  const handleOpenFixedCostPrefModal = async () => {
-    if (!user?.householdId) return;
-    const prefs = await loadFixedCostPreferences(user.householdId);
+  // ── 고정비 관리 매니저 ──
+  const refreshFixedCostManager = async () => {
+    if (!user?.householdId || !user?.uid) return;
+    const [prefs, currentExcludes] = await Promise.all([
+      loadFixedCostPreferences(user.householdId),
+      getFixedCostExcludeCategories(),
+    ]);
     setFixedCostPrefs(prefs);
+    const { fixedCosts, manualCandidates } = await analyzeFixedCostsDetailed(
+      user.householdId,
+      new Date(),
+      user.uid,
+      'personal',
+      fiscalCycle,
+      currentExcludes,
+    );
+    setActiveFixedCosts(fixedCosts);
+    setCandidateFixedCosts(manualCandidates);
+  };
+
+  const handleOpenFixedCostPrefModal = async () => {
+    if (!user?.householdId || !user?.uid) return;
     setFixedCostPrefModalVisible(true);
+    setFixedCostLoading(true);
+    setFixedCostTab('active');
+    try {
+      await refreshFixedCostManager();
+    } catch (e) {
+      console.warn('[FixedCostSettings] load failed:', e);
+    } finally {
+      setFixedCostLoading(false);
+    }
+  };
+
+  const handlePinCandidateItem = async (item: FixedCostItem) => {
+    if (!user?.householdId) return;
+    try {
+      await pinFixedCost(user.householdId, {
+        key: item.preferenceKey,
+        displayName: item.originalDescription || item.description,
+        categoryGroup: item.categoryGroup,
+        categoryName: item.categoryName,
+        categoryIcon: item.categoryIcon,
+      });
+      await refreshFixedCostManager();
+      showAlert({ title: '등록 완료', message: `"${item.description}" 항목이 고정비에 등록되었습니다.`, icon: 'success' });
+    } catch {
+      showAlert({ title: '오류', message: '고정비 등록 중 문제가 발생했습니다.' });
+    }
+  };
+
+  const handleUnpinFixedCostItem = (item: FixedCostItem) => {
+    showAlert({
+      title: '고정비 등록 해제',
+      message: `"${item.description}" 수동 등록을 해제하시겠습니까?\n다시 '등록 추천' 목록으로 이동합니다.`,
+      icon: 'warning',
+      buttons: [
+        { text: '취소', style: 'cancel' },
+        {
+          text: '해제',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await restoreFixedCost(user!.householdId!, item.preferenceKey);
+              await refreshFixedCostManager();
+            } catch {
+              showAlert({ title: '오류', message: '처리 중 문제가 발생했습니다.' });
+            }
+          },
+        },
+      ],
+    });
+  };
+
+  const handleDismissFixedCostItem = (item: FixedCostItem) => {
+    showAlert({
+      title: '고정비 제외',
+      message: `"${item.description}" 항목을 고정비에서 제외하시겠습니까?\n'숨긴 항목' 탭에서 언제든 다시 복원할 수 있습니다.`,
+      icon: 'warning',
+      buttons: [
+        { text: '취소', style: 'cancel' },
+        {
+          text: '제외',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await dismissFixedCost(user!.householdId!, {
+                key: item.preferenceKey,
+                displayName: item.originalDescription || item.description,
+                categoryGroup: item.categoryGroup,
+                categoryName: item.categoryName,
+                categoryIcon: item.categoryIcon,
+              });
+              const prefs = await loadFixedCostPreferences(user!.householdId!);
+              setFixedCostPrefs(prefs);
+              setActiveFixedCosts(prev => prev.filter(f => f.preferenceKey !== item.preferenceKey));
+            } catch {
+              showAlert({ title: '오류', message: '제외 처리 중 문제가 발생했습니다.' });
+            }
+          },
+        },
+      ],
+    });
+  };
+
+  const handleOpenEditFixedCost = (item: FixedCostItem) => {
+    setEditingItem(item);
+    setAliasInput(item.customName || '');
+    setSelectedEditCategory({
+      group: item.categoryGroup,
+      name: item.categoryName,
+      icon: item.categoryIcon,
+    });
+  };
+
+  const handleSaveFixedCostEdit = async () => {
+    if (!editingItem || !user?.householdId) return;
+    try {
+      await updateFixedCostCustomProps(user.householdId, editingItem.preferenceKey, {
+        displayName: editingItem.originalDescription || editingItem.description,
+        customName: aliasInput.trim() || undefined,
+        categoryGroup: editingItem.categoryGroup,
+        categoryName: editingItem.categoryName,
+        categoryIcon: editingItem.categoryIcon,
+        customCategoryGroup: selectedEditCategory?.group,
+        customCategoryName: selectedEditCategory?.name,
+        customCategoryIcon: selectedEditCategory?.icon,
+      });
+
+      const finalName = aliasInput.trim() ? aliasInput.trim() : (editingItem.originalDescription || editingItem.description);
+      setActiveFixedCosts(prev => prev.map(f => {
+        if (f.preferenceKey === editingItem.preferenceKey) {
+          return {
+            ...f,
+            description: finalName,
+            customName: aliasInput.trim() || undefined,
+            categoryGroup: selectedEditCategory?.group || f.categoryGroup,
+            categoryName: selectedEditCategory?.name || f.categoryName,
+            categoryIcon: selectedEditCategory?.icon || f.categoryIcon,
+          };
+        }
+        return f;
+      }));
+
+      const prefs = await loadFixedCostPreferences(user.householdId);
+      setFixedCostPrefs(prefs);
+      setEditingItem(null);
+      showAlert({ title: '저장 완료', message: '고정비 정보가 수정되었습니다.', icon: 'success' });
+    } catch {
+      showAlert({ title: '오류', message: '저장 중 문제가 발생했습니다.' });
+    }
   };
 
   const handleRestoreFixedCostPref = async (key: string) => {
-    if (!user?.householdId) return;
+    if (!user?.householdId || !user?.uid) return;
     showAlert({
       title: '복원',
-      message: '이 설정을 해제하고 자동 감지 모드로 되돌리시겠습니까?',
+      message: '이 항목을 다시 고정비로 복원하시겠습니까?',
       icon: 'warning',
       buttons: [
         { text: '취소', style: 'cancel' },
@@ -782,9 +945,8 @@ const SettingsScreen: React.FC = () => {
           onPress: async () => {
             try {
               await restoreFixedCost(user.householdId!, key);
-              const updated = { ...fixedCostPrefs };
-              delete updated[key];
-              setFixedCostPrefs(updated);
+              await refreshFixedCostManager();
+              showAlert({ title: '복원 완료', message: '항목이 고정비로 다시 복원되었습니다.', icon: 'success' });
             } catch {
               showAlert({ title: '오류', message: '처리 중 문제가 발생했습니다.' });
             }
@@ -1588,9 +1750,8 @@ const SettingsScreen: React.FC = () => {
     );
   };
 
-  // ── 고정비 관리 모달 렌더 ──
+  // ── 스마트 고정비 관리 매니저 모달 ──
   const renderFixedCostPrefModal = () => {
-    const pinnedItems = Object.entries(fixedCostPrefs).filter(([, p]) => p.action === 'pin');
     const dismissedItems = Object.entries(fixedCostPrefs).filter(([, p]) => p.action === 'dismiss');
 
     return (
@@ -1601,72 +1762,332 @@ const SettingsScreen: React.FC = () => {
         onRequestClose={() => setFixedCostPrefModalVisible(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContainer}>
+          <View style={[styles.modalContainer, { maxHeight: '85%', paddingBottom: Spacing.md }]}>
+            {/* 헤더 */}
             <View style={styles.categoryModalHeader}>
-              <Text style={styles.modalTitle}>고정비 관리</Text>
+              <View style={{ flex: 1, marginRight: 8 }}>
+                <Text style={styles.modalTitle}>고정비 관리</Text>
+                <Text style={{ fontSize: 12, color: Colors.TextMuted, marginTop: 2 }}>
+                  별칭 수정, 추천 항목 수동 등록, 불필요한 항목 제외를 관리합니다
+                </Text>
+              </View>
               <TouchableOpacity onPress={() => setFixedCostPrefModalVisible(false)}>
                 <Icon name="close" size={24} color={Colors.TextSecondary} />
               </TouchableOpacity>
             </View>
 
-            {pinnedItems.length === 0 && dismissedItems.length === 0 ? (
-              <View style={{paddingVertical: Spacing.lg, alignItems: 'center'}}>
-                <Icon name="checkmark-circle-outline" size={40} color={Colors.TextMuted} />
-                <Text style={{color: Colors.TextMuted, marginTop: Spacing.sm, fontSize: 14}}>
-                  등록/제외한 항목이 없습니다
+            {/* 탭 전환 바 */}
+            <View style={{ flexDirection: 'row', backgroundColor: Colors.Background, borderRadius: 10, padding: 3, marginVertical: Spacing.sm }}>
+              <TouchableOpacity
+                style={{
+                  flex: 1,
+                  paddingVertical: 8,
+                  alignItems: 'center',
+                  borderRadius: 8,
+                  backgroundColor: fixedCostTab === 'active' ? Colors.Surface : 'transparent',
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 1 },
+                  shadowOpacity: fixedCostTab === 'active' ? 0.08 : 0,
+                  shadowRadius: 2,
+                  elevation: fixedCostTab === 'active' ? 2 : 0,
+                }}
+                onPress={() => setFixedCostTab('active')}
+              >
+                <Text style={{ fontSize: 12, fontWeight: '700', color: fixedCostTab === 'active' ? Colors.Primary : Colors.TextMuted }}>
+                  활성 ({activeFixedCosts.length})
                 </Text>
-                <Text style={{color: Colors.TextMuted, fontSize: 12, marginTop: 4, textAlign: 'center'}}>
-                  대시보드에서 고정비를 길게 누르거나{'\n'}상세를 열어 관리할 수 있습니다
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={{
+                  flex: 1,
+                  paddingVertical: 8,
+                  alignItems: 'center',
+                  borderRadius: 8,
+                  backgroundColor: fixedCostTab === 'candidates' ? Colors.Surface : 'transparent',
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 1 },
+                  shadowOpacity: fixedCostTab === 'candidates' ? 0.08 : 0,
+                  shadowRadius: 2,
+                  elevation: fixedCostTab === 'candidates' ? 2 : 0,
+                }}
+                onPress={() => setFixedCostTab('candidates')}
+              >
+                <Text style={{ fontSize: 12, fontWeight: '700', color: fixedCostTab === 'candidates' ? Colors.Primary : Colors.TextMuted }}>
+                  등록 추천 ({candidateFixedCosts.length})
                 </Text>
-              </View>
-            ) : (
-              <ScrollView style={{maxHeight: 400}}>
-                {pinnedItems.length > 0 && (
-                  <>
-                    <Text style={{fontSize: 13, fontWeight: '700', color: Colors.Primary, marginBottom: 8, marginTop: 4}}>
-                      📌 등록한 고정비
-                    </Text>
-                    {pinnedItems.map(([key, pref]) => (
-                      <View key={key} style={{flexDirection: 'row', alignItems: 'center', paddingVertical: 8, borderBottomWidth: 0.5, borderBottomColor: Colors.Divider}}>
-                        <View style={{flex: 1}}>
-                          <Text style={{fontSize: 14, fontWeight: '600', color: Colors.Text}}>{pref.displayName}</Text>
-                          <Text style={{fontSize: 12, color: Colors.TextMuted}}>{pref.categoryName}</Text>
-                        </View>
-                        <TouchableOpacity
-                          onPress={() => handleRestoreFixedCostPref(key)}
-                          hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}
-                        >
-                          <Text style={{fontSize: 13, color: Colors.Expense, fontWeight: '600'}}>해제</Text>
-                        </TouchableOpacity>
-                      </View>
-                    ))}
-                  </>
-                )}
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={{
+                  flex: 1,
+                  paddingVertical: 8,
+                  alignItems: 'center',
+                  borderRadius: 8,
+                  backgroundColor: fixedCostTab === 'dismissed' ? Colors.Surface : 'transparent',
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 1 },
+                  shadowOpacity: fixedCostTab === 'dismissed' ? 0.08 : 0,
+                  shadowRadius: 2,
+                  elevation: fixedCostTab === 'dismissed' ? 2 : 0,
+                }}
+                onPress={() => setFixedCostTab('dismissed')}
+              >
+                <Text style={{ fontSize: 12, fontWeight: '700', color: fixedCostTab === 'dismissed' ? Colors.Primary : Colors.TextMuted }}>
+                  숨긴 항목 ({dismissedItems.length})
+                </Text>
+              </TouchableOpacity>
+            </View>
 
-                {dismissedItems.length > 0 && (
-                  <>
-                    <Text style={{fontSize: 13, fontWeight: '700', color: Colors.TextMuted, marginBottom: 8, marginTop: pinnedItems.length > 0 ? 16 : 4}}>
-                      🚫 제외한 항목
-                    </Text>
-                    {dismissedItems.map(([key, pref]) => (
-                      <View key={key} style={{flexDirection: 'row', alignItems: 'center', paddingVertical: 8, borderBottomWidth: 0.5, borderBottomColor: Colors.Divider}}>
-                        <View style={{flex: 1}}>
-                          <Text style={{fontSize: 14, fontWeight: '600', color: Colors.TextMuted}}>{pref.displayName}</Text>
-                          <Text style={{fontSize: 12, color: Colors.TextMuted}}>{pref.categoryName}</Text>
+            {/* 본문 */}
+            {fixedCostLoading ? (
+              <View style={{ paddingVertical: 40, alignItems: 'center' }}>
+                <ActivityIndicator size="small" color={Colors.Primary} />
+                <Text style={{ marginTop: 8, fontSize: 13, color: Colors.TextMuted }}>고정비를 분석하고 있습니다...</Text>
+              </View>
+            ) : fixedCostTab === 'active' ? (
+              activeFixedCosts.length === 0 ? (
+                <View style={{ paddingVertical: 40, alignItems: 'center' }}>
+                  <Icon name="receipt-outline" size={38} color={Colors.TextMuted} />
+                  <Text style={{ color: Colors.TextMuted, marginTop: 8, fontSize: 14 }}>
+                    감지된 고정비가 없습니다
+                  </Text>
+                  <Text style={{ color: Colors.TextMuted, fontSize: 12, marginTop: 4, textAlign: 'center' }}>
+                    매월 정기적으로 결제되는 내역이 감지되면 자동으로 표시됩니다
+                  </Text>
+                </View>
+              ) : (
+                <ScrollView style={{ maxHeight: Dimensions.get('window').height * 0.45 }} showsVerticalScrollIndicator={false}>
+                  {activeFixedCosts.map((item, idx) => (
+                    <View
+                      key={item.preferenceKey || `fc-${idx}`}
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        paddingVertical: 10,
+                        paddingHorizontal: 8,
+                        borderBottomWidth: 0.5,
+                        borderBottomColor: Colors.Divider,
+                      }}
+                    >
+                      {/* 아이콘 */}
+                      <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: Colors.Primary + '15', alignItems: 'center', justifyContent: 'center', marginRight: 10 }}>
+                        <CategoryIcon icon={item.categoryIcon} categoryName={item.categoryName} size={18} color={Colors.Primary} />
+                      </View>
+
+                      {/* 이름 & 정보 */}
+                      <View style={{ flex: 1, marginRight: 8 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
+                          <Text style={{ fontSize: 14, fontWeight: '700', color: Colors.Text }} numberOfLines={1}>
+                            {item.description}
+                          </Text>
+                          {item.source === 'pinned' && (
+                            <View style={{ backgroundColor: '#F59E0B20', paddingHorizontal: 5, paddingVertical: 1, borderRadius: 4 }}>
+                              <Text style={{ fontSize: 10, color: '#D97706', fontWeight: '700' }}>수동등록</Text>
+                            </View>
+                          )}
+                          {item.customName && (
+                            <View style={{ backgroundColor: Colors.Primary + '15', paddingHorizontal: 5, paddingVertical: 1, borderRadius: 4 }}>
+                              <Text style={{ fontSize: 10, color: Colors.Primary, fontWeight: '700' }}>별칭</Text>
+                            </View>
+                          )}
                         </View>
+                        {item.customName && (
+                          <Text style={{ fontSize: 11, color: Colors.TextMuted, marginTop: 1 }} numberOfLines={1}>
+                            원래 적요: {item.originalDescription}
+                          </Text>
+                        )}
+                        <Text style={{ fontSize: 12, color: Colors.Primary, fontWeight: '600', marginTop: 2 }}>
+                          {formatCurrency(item.amount)}
+                          <Text style={{ fontSize: 11, color: Colors.TextMuted, fontWeight: '400' }}>
+                            {' '}· {item.categoryName} {item.expectedDay ? `(약 ${item.expectedDay}일)` : ''}
+                          </Text>
+                        </Text>
+                      </View>
+
+                      {/* 액션 버튼들 */}
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                         <TouchableOpacity
-                          onPress={() => handleRestoreFixedCostPref(key)}
-                          hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}
+                          style={{
+                            paddingHorizontal: 10,
+                            paddingVertical: 5,
+                            borderRadius: 6,
+                            backgroundColor: Colors.Primary + '12',
+                          }}
+                          onPress={() => handleOpenEditFixedCost(item)}
                         >
-                          <Text style={{fontSize: 13, color: Colors.Primary, fontWeight: '600'}}>복원</Text>
+                          <Text style={{ fontSize: 12, color: Colors.Primary, fontWeight: '700' }}>수정</Text>
+                        </TouchableOpacity>
+                        {item.source === 'pinned' ? (
+                          <TouchableOpacity
+                            style={{
+                              paddingHorizontal: 8,
+                              paddingVertical: 5,
+                              borderRadius: 6,
+                              backgroundColor: '#EF444412',
+                              borderWidth: 0.5,
+                              borderColor: '#EF444440',
+                            }}
+                            onPress={() => handleUnpinFixedCostItem(item)}
+                          >
+                            <Text style={{ fontSize: 12, color: '#EF4444', fontWeight: '600' }}>해제</Text>
+                          </TouchableOpacity>
+                        ) : (
+                          <TouchableOpacity
+                            style={{
+                              paddingHorizontal: 8,
+                              paddingVertical: 5,
+                              borderRadius: 6,
+                              backgroundColor: Colors.Surface,
+                              borderWidth: 0.5,
+                              borderColor: Colors.CardBorder,
+                            }}
+                            onPress={() => handleDismissFixedCostItem(item)}
+                          >
+                            <Text style={{ fontSize: 12, color: Colors.TextMuted }}>제외</Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    </View>
+                  ))}
+                </ScrollView>
+              )
+            ) : fixedCostTab === 'candidates' ? (
+              candidateFixedCosts.length === 0 ? (
+                <View style={{ paddingVertical: 40, alignItems: 'center' }}>
+                  <Icon name="sparkles-outline" size={38} color={Colors.TextMuted} />
+                  <Text style={{ color: Colors.TextMuted, marginTop: 8, fontSize: 14 }}>
+                    수동 등록을 추천할 항목이 없습니다
+                  </Text>
+                  <Text style={{ color: Colors.TextMuted, fontSize: 12, marginTop: 4, textAlign: 'center', paddingHorizontal: 12 }}>
+                    매달 비슷한 날짜에 1건씩 발생하지만 금액 변동이 커서 자동 제외된 내역이 여기에 표시됩니다
+                  </Text>
+                </View>
+              ) : (
+                <ScrollView style={{ maxHeight: Dimensions.get('window').height * 0.45 }} showsVerticalScrollIndicator={false}>
+                  <View style={{ backgroundColor: Colors.Primary + '0D', borderRadius: 8, padding: 10, marginBottom: 8 }}>
+                    <Text style={{ fontSize: 11, color: Colors.TextSecondary, lineHeight: 16 }}>
+                      매월 비슷한 날짜에 정기적으로 발생하지만, 금액 변동 폭(20% 초과) 때문에 자동 고정비에서 보류된 항목입니다. 원하시면 수동으로 등록하세요.
+                    </Text>
+                  </View>
+                  {candidateFixedCosts.map((item, idx) => {
+                    const historySummary = item.evidence
+                      .slice(0, 5)
+                      .map(ev => {
+                        const tx = ev.transactions[0];
+                        if (!tx) return '';
+                        return `${tx.date.getMonth() + 1}/${tx.date.getDate()}(${formatCurrency(tx.amount)})`;
+                      })
+                      .filter(Boolean)
+                      .join(' · ');
+
+                    return (
+                      <View
+                        key={item.preferenceKey || `cand-${idx}`}
+                        style={{
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          paddingVertical: 10,
+                          paddingHorizontal: 8,
+                          borderBottomWidth: 0.5,
+                          borderBottomColor: Colors.Divider,
+                        }}
+                      >
+                        <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: '#F59E0B18', alignItems: 'center', justifyContent: 'center', marginRight: 10 }}>
+                          <CategoryIcon icon={item.categoryIcon} categoryName={item.categoryName} size={18} color="#D97706" />
+                        </View>
+
+                        <View style={{ flex: 1, marginRight: 8 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                            <Text style={{ fontSize: 14, fontWeight: '700', color: Colors.Text }} numberOfLines={1}>
+                              {item.description}
+                            </Text>
+                            {typeof item.cv === 'number' && (
+                              <View style={{ backgroundColor: '#F59E0B20', paddingHorizontal: 5, paddingVertical: 1, borderRadius: 4 }}>
+                                <Text style={{ fontSize: 10, color: '#D97706', fontWeight: '700' }}>
+                                  변동 {Math.round(item.cv * 100)}%
+                                </Text>
+                              </View>
+                            )}
+                          </View>
+                          <Text style={{ fontSize: 12, color: Colors.Text, fontWeight: '600', marginTop: 2 }}>
+                            평균 {formatCurrency(item.amount)}
+                            <Text style={{ fontSize: 11, color: Colors.TextMuted, fontWeight: '400' }}>
+                              {' '}· {item.categoryName} {item.expectedDay ? `(약 ${item.expectedDay}일)` : ''}
+                            </Text>
+                          </Text>
+                          {!!historySummary && (
+                            <Text style={{ fontSize: 10, color: Colors.TextMuted, marginTop: 3 }} numberOfLines={2}>
+                              {historySummary}
+                            </Text>
+                          )}
+                        </View>
+
+                        <TouchableOpacity
+                          style={{
+                            paddingHorizontal: 12,
+                            paddingVertical: 6,
+                            borderRadius: 6,
+                            backgroundColor: Colors.Primary,
+                          }}
+                          onPress={() => handlePinCandidateItem(item)}
+                        >
+                          <Text style={{ fontSize: 12, color: '#fff', fontWeight: '700' }}>등록</Text>
                         </TouchableOpacity>
                       </View>
-                    ))}
-                  </>
-                )}
-              </ScrollView>
+                    );
+                  })}
+                </ScrollView>
+              )
+            ) : (
+              dismissedItems.length === 0 ? (
+                <View style={{ paddingVertical: 40, alignItems: 'center' }}>
+                  <Icon name="checkmark-circle-outline" size={38} color={Colors.TextMuted} />
+                  <Text style={{ color: Colors.TextMuted, marginTop: 8, fontSize: 14 }}>
+                    숨긴 고정비가 없습니다
+                  </Text>
+                </View>
+              ) : (
+                <ScrollView style={{ maxHeight: Dimensions.get('window').height * 0.45 }} showsVerticalScrollIndicator={false}>
+                  {dismissedItems.map(([key, pref]) => (
+                    <View
+                      key={key}
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        paddingVertical: 10,
+                        paddingHorizontal: 8,
+                        borderBottomWidth: 0.5,
+                        borderBottomColor: Colors.Divider,
+                      }}
+                    >
+                      <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: Colors.CardBorder, alignItems: 'center', justifyContent: 'center', marginRight: 10 }}>
+                        <CategoryIcon icon={pref.categoryIcon} categoryName={pref.categoryName} size={18} color={Colors.TextMuted} />
+                      </View>
+                      <View style={{ flex: 1, marginRight: 8 }}>
+                        <Text style={{ fontSize: 14, fontWeight: '600', color: Colors.TextMuted }} numberOfLines={1}>
+                          {pref.displayName}
+                        </Text>
+                        <Text style={{ fontSize: 12, color: Colors.TextMuted, marginTop: 1 }}>
+                          {pref.categoryGroup} {pref.categoryName ? `> ${pref.categoryName}` : ''}
+                        </Text>
+                      </View>
+                      <TouchableOpacity
+                        style={{
+                          paddingHorizontal: 10,
+                          paddingVertical: 5,
+                          borderRadius: 6,
+                          backgroundColor: Colors.Primary + '15',
+                        }}
+                        onPress={() => handleRestoreFixedCostPref(key)}
+                      >
+                        <Text style={{ fontSize: 12, color: Colors.Primary, fontWeight: '700' }}>복원</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                </ScrollView>
+              )
             )}
 
+            {/* 닫기 버튼 */}
             <View style={[styles.modalButtonRow, { marginTop: Spacing.md }]}>
               <TouchableOpacity
                 style={styles.modalConfirmBtn}
@@ -1677,6 +2098,151 @@ const SettingsScreen: React.FC = () => {
             </View>
           </View>
         </View>
+
+        {/* ── 고정비 별칭/카테고리 수정 모달 ── */}
+        {editingItem && (
+          <Modal
+            visible={!!editingItem}
+            transparent
+            animationType="fade"
+            onRequestClose={() => setEditingItem(null)}
+          >
+            <View style={styles.modalOverlay}>
+              <View style={[styles.modalContainer, { width: '85%' }]}>
+                <View style={styles.categoryModalHeader}>
+                  <Text style={styles.modalTitle}>고정비 정보 수정</Text>
+                  <TouchableOpacity onPress={() => setEditingItem(null)}>
+                    <Icon name="close" size={22} color={Colors.TextSecondary} />
+                  </TouchableOpacity>
+                </View>
+
+                <View style={{ marginVertical: Spacing.sm }}>
+                  <Text style={{ fontSize: 12, color: Colors.TextMuted, marginBottom: 4 }}>원래 가맹점(적요)</Text>
+                  <Text style={{ fontSize: 14, fontWeight: '600', color: Colors.Text, marginBottom: Spacing.md }}>
+                    {editingItem.originalDescription || editingItem.description} ({formatCurrency(editingItem.amount)})
+                  </Text>
+
+                  {/* 별칭 입력 */}
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: Colors.Text, marginBottom: 6 }}>
+                    고정비 별칭 (이름)
+                  </Text>
+                  <TextInput
+                    style={{
+                      borderWidth: 1,
+                      borderColor: Colors.CardBorder,
+                      borderRadius: 8,
+                      paddingHorizontal: 12,
+                      paddingVertical: 10,
+                      fontSize: 14,
+                      color: Colors.Text,
+                      backgroundColor: Colors.Background,
+                    }}
+                    placeholder="예: 청년도약계좌, 주택청약, 헬스장"
+                    placeholderTextColor={Colors.TextMuted}
+                    value={aliasInput}
+                    onChangeText={setAliasInput}
+                    maxLength={20}
+                  />
+                  <Text style={{ fontSize: 11, color: Colors.TextMuted, marginTop: 4 }}>
+                    비워두면 원래 적요명으로 표시됩니다.
+                  </Text>
+
+                  {/* 카테고리 변경 */}
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: Colors.Text, marginTop: Spacing.md, marginBottom: 6 }}>
+                    대표 카테고리
+                  </Text>
+                  <TouchableOpacity
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      borderWidth: 1,
+                      borderColor: Colors.CardBorder,
+                      borderRadius: 8,
+                      paddingHorizontal: 12,
+                      paddingVertical: 10,
+                      backgroundColor: Colors.Background,
+                    }}
+                    onPress={() => setCategoryPickerVisible(true)}
+                  >
+                    {selectedEditCategory && (
+                      <CategoryIcon icon={selectedEditCategory.icon} categoryName={selectedEditCategory.name} size={18} color={Colors.Primary} style={{ marginRight: 8 }} />
+                    )}
+                    <Text style={{ flex: 1, fontSize: 14, color: Colors.Text, fontWeight: '600' }}>
+                      {selectedEditCategory ? `${selectedEditCategory.group} > ${selectedEditCategory.name}` : '카테고리 선택'}
+                    </Text>
+                    <Icon name="chevron-forward" size={18} color={Colors.TextMuted} />
+                  </TouchableOpacity>
+                </View>
+
+                {/* 버튼들 */}
+                <View style={{ flexDirection: 'row', gap: 10, marginTop: Spacing.md }}>
+                  <TouchableOpacity
+                    style={{ flex: 1, paddingVertical: 12, borderRadius: 8, borderWidth: 1, borderColor: Colors.CardBorder, alignItems: 'center' }}
+                    onPress={() => setEditingItem(null)}
+                  >
+                    <Text style={{ fontSize: 14, color: Colors.TextSecondary, fontWeight: '600' }}>취소</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={{ flex: 1, paddingVertical: 12, borderRadius: 8, backgroundColor: Colors.Primary, alignItems: 'center' }}
+                    onPress={handleSaveFixedCostEdit}
+                  >
+                    <Text style={{ fontSize: 14, color: '#FFF', fontWeight: '700' }}>저장</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          </Modal>
+        )}
+
+        {/* ── 카테고리 선택 서브 바텀 모달 ── */}
+        {categoryPickerVisible && (
+          <Modal
+            visible={categoryPickerVisible}
+            transparent
+            animationType="fade"
+            onRequestClose={() => setCategoryPickerVisible(false)}
+          >
+            <View style={styles.modalOverlay}>
+              <View style={[styles.modalContainer, { maxHeight: '70%' }]}>
+                <View style={styles.categoryModalHeader}>
+                  <Text style={styles.modalTitle}>카테고리 선택</Text>
+                  <TouchableOpacity onPress={() => setCategoryPickerVisible(false)}>
+                    <Icon name="close" size={22} color={Colors.TextSecondary} />
+                  </TouchableOpacity>
+                </View>
+
+                <ScrollView style={{ maxHeight: 350 }}>
+                  {categories.filter(c => c.type === 'expense').map((cat: any) => (
+                    <TouchableOpacity
+                      key={cat.id || `${cat.group}_${cat.name}`}
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        paddingVertical: 12,
+                        paddingHorizontal: 8,
+                        borderBottomWidth: 0.5,
+                        borderBottomColor: Colors.Divider,
+                      }}
+                      onPress={() => {
+                        setSelectedEditCategory({
+                          group: cat.group || '기타',
+                          name: cat.name,
+                          icon: cat.icon || 'card',
+                        });
+                        setCategoryPickerVisible(false);
+                      }}
+                    >
+                      <CategoryIcon icon={cat.icon} categoryName={cat.name} size={20} color={Colors.Primary} style={{ marginRight: 10 }} />
+                      <Text style={{ fontSize: 14, fontWeight: '600', color: Colors.Text }}>
+                        {cat.group ? `${cat.group} > ` : ''}{cat.name}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+            </View>
+          </Modal>
+        )}
       </Modal>
     );
   };
@@ -1772,9 +2338,9 @@ const SettingsScreen: React.FC = () => {
           />
           <View style={styles.separator} />
           <SettingsRow
-            icon="list-outline"
+            icon="card-outline"
             title="고정비 관리"
-            subtitle="등록/제외한 고정비 항목을 확인하고 복원합니다"
+            subtitle="고정비 목록을 확인하고 이름(별칭)과 카테고리를 관리합니다"
             onPress={handleOpenFixedCostPrefModal}
           />
         </GlassCard>

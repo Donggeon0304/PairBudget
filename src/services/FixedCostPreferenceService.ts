@@ -13,11 +13,14 @@ export interface FixedCostPreference {
   /** 고유 키: normalizedDescription__categoryGroup__categoryName */
   key: string;
 
-  /** 동작: pin(고정비로 등록) | dismiss(고정비에서 제외) */
-  action: 'pin' | 'dismiss';
+  /** 동작: pin(고정비로 등록) | dismiss(고정비에서 제외) | alias(이름/카테고리 커스텀) */
+  action: 'pin' | 'dismiss' | 'alias';
 
-  /** 화면에 표시할 이름 */
+  /** 화면에 표시할 이름 (원래 가맹점명) */
   displayName: string;
+
+  /** 사용자가 직접 지정한 별칭 (예: "청년도약계좌", "주택청약") */
+  customName?: string;
 
   /** 카테고리 그룹 (대카테고리) */
   categoryGroup: string;
@@ -27,6 +30,15 @@ export interface FixedCostPreference {
 
   /** 카테고리 아이콘 */
   categoryIcon: string;
+
+  /** 사용자 커스텀 카테고리 그룹 */
+  customCategoryGroup?: string;
+
+  /** 사용자 커스텀 카테고리 이름 */
+  customCategoryName?: string;
+
+  /** 사용자 커스텀 카테고리 아이콘 */
+  customCategoryIcon?: string;
 
   /** 등록/해제 시각 */
   updatedAt: number;
@@ -67,6 +79,17 @@ export async function loadFixedCostPreferences(
   }
 }
 
+/** 객체에서 undefined 속성을 제거하여 Firestore 직렬화 에러 방지 */
+function stripUndefined<T extends Record<string, any>>(obj: T): T {
+  const result: Record<string, any> = {};
+  Object.keys(obj).forEach(k => {
+    if (obj[k] !== undefined) {
+      result[k] = obj[k];
+    }
+  });
+  return result as T;
+}
+
 /**
  * 고정비로 핀(등록)
  */
@@ -75,13 +98,14 @@ export async function pinFixedCost(
   pref: Omit<FixedCostPreference, 'action' | 'updatedAt'>,
 ): Promise<void> {
   try {
+    const cleanPref = stripUndefined({
+      ...pref,
+      action: 'pin' as const,
+      updatedAt: Date.now(),
+    });
     await getPrefsDocRef(householdId).set({
       preferences: {
-        [pref.key]: {
-          ...pref,
-          action: 'pin',
-          updatedAt: Date.now(),
-        },
+        [pref.key]: cleanPref,
       },
     }, { merge: true });
   } catch (e) {
@@ -98,13 +122,14 @@ export async function dismissFixedCost(
   pref: Omit<FixedCostPreference, 'action' | 'updatedAt'>,
 ): Promise<void> {
   try {
+    const cleanPref = stripUndefined({
+      ...pref,
+      action: 'dismiss' as const,
+      updatedAt: Date.now(),
+    });
     await getPrefsDocRef(householdId).set({
       preferences: {
-        [pref.key]: {
-          ...pref,
-          action: 'dismiss',
-          updatedAt: Date.now(),
-        },
+        [pref.key]: cleanPref,
       },
     }, { merge: true });
   } catch (e) {
@@ -133,3 +158,58 @@ export async function restoreFixedCost(
     throw e;
   }
 }
+
+/**
+ * 고정비 커스텀 정보(별칭, 카테고리) 수정 저장
+ */
+export async function updateFixedCostCustomProps(
+  householdId: string,
+  key: string,
+  props: {
+    displayName: string;
+    customName?: string;
+    categoryGroup: string;
+    categoryName: string;
+    categoryIcon: string;
+    customCategoryGroup?: string;
+    customCategoryName?: string;
+    customCategoryIcon?: string;
+  },
+): Promise<void> {
+  try {
+    const docRef = getPrefsDocRef(householdId);
+    const doc = await docRef.get();
+    const allPrefs = { ...(doc.data()?.preferences || {}) };
+    const existing = allPrefs[key] || {};
+
+    const nextEntry: Record<string, any> = {
+      ...existing,
+      key,
+      action: existing.action || 'alias',
+      displayName: props.displayName,
+      categoryGroup: props.categoryGroup,
+      categoryName: props.categoryName,
+      categoryIcon: props.categoryIcon,
+      updatedAt: Date.now(),
+    };
+
+    // 별칭 처리 (빈 값/undefined 전달 시 기존 별칭도 제거)
+    if (props.customName && props.customName.trim()) {
+      nextEntry.customName = props.customName.trim();
+    } else if ('customName' in props) {
+      delete nextEntry.customName;
+    }
+
+    // 커스텀 카테고리 처리
+    if (props.customCategoryGroup !== undefined) nextEntry.customCategoryGroup = props.customCategoryGroup;
+    if (props.customCategoryName !== undefined) nextEntry.customCategoryName = props.customCategoryName;
+    if (props.customCategoryIcon !== undefined) nextEntry.customCategoryIcon = props.customCategoryIcon;
+
+    allPrefs[key] = stripUndefined(nextEntry);
+    await docRef.set({ preferences: allPrefs });
+  } catch (e) {
+    console.warn('[FixedCostPref] updateFixedCostCustomProps failed:', e);
+    throw e;
+  }
+}
+
