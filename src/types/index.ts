@@ -154,15 +154,16 @@ export const DEFAULT_CATEGORIES: Omit<Category, 'id'>[] = [
   { name: '축의금/부의금', group: '경조사', icon: 'heart-outline', color: '#F8A5C2', type: 'expense', order: 37, isDefault: true },
   { name: '선물', group: '경조사', icon: 'gift-outline', color: '#F78FB3', type: 'expense', order: 38, isDefault: true },
   { name: '모임비', group: '경조사', icon: 'people-outline', color: '#E66767', type: 'expense', order: 39, isDefault: true },
-  // ── 금융 (4개) ──
+  // ── 금융 (5개) ──
   { name: '보험', group: '금융', icon: 'shield-checkmark-outline', color: '#636E72', type: 'expense', order: 40, isDefault: true },
   { name: '세금', group: '금융', icon: 'receipt-outline', color: '#2D3436', type: 'expense', order: 41, isDefault: true },
   { name: '대출이자', group: '금융', icon: 'trending-down-outline', color: '#B2BEC3', type: 'expense', order: 42, isDefault: true },
   { name: '저축/투자', group: '금융', icon: 'analytics-outline', color: '#576574', type: 'expense', order: 43, isDefault: true },
+  { name: '비상금', group: '금융', icon: 'wallet-outline', color: '#00A8CC', type: 'expense', order: 44, isDefault: true },
   // ── 기타 (3개) ──
-  { name: '편의점', group: '기타', icon: 'storefront-outline', color: '#E17055', type: 'expense', order: 44, isDefault: true },
-  { name: 'ATM/수수료', group: '기타', icon: 'swap-horizontal-outline', color: '#B2BEC3', type: 'expense', order: 45, isDefault: true },
-  { name: '기타지출', group: '기타', icon: 'cash-outline', color: '#636E72', type: 'expense', order: 46, isDefault: true },
+  { name: '편의점', group: '기타', icon: 'storefront-outline', color: '#E17055', type: 'expense', order: 45, isDefault: true },
+  { name: 'ATM/수수료', group: '기타', icon: 'swap-horizontal-outline', color: '#B2BEC3', type: 'expense', order: 46, isDefault: true },
+  { name: '기타지출', group: '기타', icon: 'cash-outline', color: '#636E72', type: 'expense', order: 47, isDefault: true },
   // ── 수입: 급여 (3개) ──
   { name: '월급', group: '급여', icon: 'wallet-outline', color: '#00B894', type: 'income', order: 0, isDefault: true },
   { name: '상여금', group: '급여', icon: 'trophy-outline', color: '#00CEC9', type: 'income', order: 1, isDefault: true },

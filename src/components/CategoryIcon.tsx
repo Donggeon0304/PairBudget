@@ -58,6 +58,9 @@ const CATEGORY_ICON_MAP: Record<string, string> = {
   // 금융
   '보험': 'shield-checkmark-outline',
   '세금': 'receipt-outline',
+  '대출이자': 'trending-down-outline',
+  '저축/투자': 'analytics-outline',
+  '비상금': 'wallet-outline',
   // 반려동물
   '사료/간식': 'paw-outline',
   '동물병원': 'medkit-outline',

@@ -282,13 +282,14 @@ export async function analyzeFixedCostsDetailed(
     // 금액 내림차순 정렬
     const sorted = [...txList].sort((a, b) => b.amount - a.amount);
 
-    // [Step 1] 동일 카테고리 그룹(categoryGroup) + 금액 5% 이내 Core 고정 스트림 형성
+    // [Step 1] 동일 소카테고리(categoryGroup + categoryName) + 금액 5% 이내 Core 고정 스트림 형성
+    // (예: 같은 '금융' 대분류라도 '저축/투자'와 '비상금'은 완전히 다른 성격의 지출이므로 분리)
     const clusters: Cluster[] = [];
     for (const tx of sorted) {
       let matched: Cluster | null = null;
       for (const c of clusters) {
         const diffRatio = Math.abs(tx.amount - c.avgAmt) / Math.max(tx.amount, c.avgAmt);
-        if (diffRatio <= 0.05 && tx.categoryGroup === c.grp) {
+        if (diffRatio <= 0.05 && tx.categoryGroup === c.grp && tx.categoryName === c.cat) {
           matched = c;
           break;
         }
@@ -316,9 +317,53 @@ export async function analyzeFixedCostsDetailed(
 
     const absorbed = new Set<number>();
 
-    // [Step 2] 단발성(1개월) 카테고리 오입력 거래 흡수
-    // 주력(2개월+) 클러스터와 금액이 ±5% 이내로 일치하고, 날짜가 약정일 ±3일 이내이며, 해당 월이 비어있을 때만 흡수
-    // (날짜가 동떨어진 타 용도 거래 예: 11/6 생활비 10만 vs 25일 청약 10만 은 절대 합치지 않고 분리)
+    // [Step 2] 동일 소카테고리 내 변동 고정비(±20% 이내, 예: 관리비/생활비/통신비/비상금) 병합 우선 실행
+    // (배열 순서와 무관하게 주력 2개월+ 클러스터가 1개월 단발을 흡수할 수 있도록 i !== j 전체 탐색)
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (let i = 0; i < clusters.length; i++) {
+        if (absorbed.has(i)) continue;
+        const main = clusters[i];
+        const mainMonths = new Set(main.txs.map(t => t.monthIdx));
+        const mainAnchor = findBestAnchorDay(main.txs.map(t => t.date.getDate()));
+
+        for (let j = 0; j < clusters.length; j++) {
+          if (i === j || absorbed.has(j)) continue;
+          const sub = clusters[j];
+          if (main.grp !== sub.grp || main.cat !== sub.cat) continue;
+
+          const diffRatio = Math.abs(sub.avgAmt - main.avgAmt) / Math.max(sub.avgAmt, main.avgAmt);
+          // 1) ±20% 이내 병합: 양쪽 모두 합쳐질 수 있으므로 i < j 또는 mainMonths >= subMonths 일 때 병합
+          let shouldMerge = diffRatio <= 0.20 && (mainMonths.size > new Set(sub.txs.map(t => t.monthIdx)).size || i < j);
+
+          // 2) 금액 차이가 20%를 넘더라도:
+          // - 기존 주력(2개월+) 스트림이 정액 계약(100% 동일 금액)이 아닌 '변동형 스트림'이고
+          // - 동일 소카테고리의 빈 달·약정일 ±3일 1건짜리 거래이며 합산 CV <= 20%면 동일 변동 고정비로 병합한다.
+          const isExactFixedMain = main.txs.length >= 2 && main.txs.every(t => t.amount === main.txs[0].amount);
+          if (!shouldMerge && !isExactFixedMain && mainMonths.size >= 2 && sub.txs.length === 1) {
+            const subTx = sub.txs[0];
+            if (!mainMonths.has(subTx.monthIdx) && getDayDistance(subTx.date.getDate(), mainAnchor) <= MAX_ANCHOR_DEVIATION) {
+              const combinedAmts = [...main.txs, subTx].map(t => t.amount);
+              if (calculateCv(combinedAmts) <= MAX_ALLOWED_CV) {
+                shouldMerge = true;
+              }
+            }
+          }
+
+          if (shouldMerge) {
+            main.txs.push(...sub.txs);
+            main.avgAmt = main.txs.reduce((s, t) => s + t.amount, 0) / main.txs.length;
+            sub.txs.forEach(t => mainMonths.add(t.monthIdx));
+            absorbed.add(j);
+            changed = true;
+          }
+        }
+      }
+    }
+
+    // [Step 3] 순수 고아(1개월 단발) 거래의 타 카테고리 오입력 보정 흡수
+    // 자기 카테고리 그룹의 주력 고정비에 속하지 못한 완전 고아 거래에 한해 타 카테고리의 고정비(±5%, 약정일 ±3일, 빈 달)로 흡수
     for (let i = 0; i < clusters.length; i++) {
       if (absorbed.has(i)) continue;
       const main = clusters[i];
@@ -348,36 +393,15 @@ export async function analyzeFixedCostsDetailed(
       }
     }
 
-    // [Step 3] 동일 카테고리 그룹 내 변동 고정비(±20% 이내, 예: 관리비/생활비/통신비) 병합
-    // (일상 소비처의 가격 변동 거래도 함께 묶여서 이후 일탈/다건 검증에서 정확히 걸러지도록 날짜 제한 없이 그룹 내 병합)
-    let changed = true;
-    while (changed) {
-      changed = false;
-      for (let i = 0; i < clusters.length; i++) {
-        if (absorbed.has(i)) continue;
-        const main = clusters[i];
-        for (let j = i + 1; j < clusters.length; j++) {
-          if (absorbed.has(j)) continue;
-          const sub = clusters[j];
-          if (main.grp !== sub.grp) continue;
-
-          const diffRatio = Math.abs(sub.avgAmt - main.avgAmt) / Math.max(sub.avgAmt, main.avgAmt);
-          if (diffRatio <= 0.20) {
-            main.txs.push(...sub.txs);
-            main.avgAmt = main.txs.reduce((s, t) => s + t.amount, 0) / main.txs.length;
-            absorbed.add(j);
-            changed = true;
-          }
-        }
-      }
-    }
-
     // [Step 4] 체리피킹 차단 — 동일 소카테고리 & 빈 달의 1개월 단발(고아) 거래 편입
-    // 3개월+ 형성된 스트림과 같은 소카테고리(categoryName)이면서, 빈 달의 약정일 ±3일 이내에 존재하는
-    // 단 1건짜리 고아 거래(예: 9월 후불교통비 34,400원)를 함께 묶어 전수 이력으로 CV를 검증한다.
+    // 단, 금액이 1원까지 완전히 동일한 정액 계약 스트림(예: 70만 적금)에는 다른 금액의 별개 상품(예: 50만 적금)이 섞이지 않도록 제외하고,
+    // 금액이 매달 변하는 변동형 스트림(예: 후불교통비, 공과금)에만 빈 달 고아 거래(예: 9월 34,400원)를 편입해 전수 CV를 검증한다.
     for (let i = 0; i < clusters.length; i++) {
       if (absorbed.has(i)) continue;
       const main = clusters[i];
+      const isExactFixedMain = main.txs.length >= 2 && main.txs.every(t => t.amount === main.txs[0].amount);
+      if (isExactFixedMain) continue;
+
       const mainMonths = new Set(main.txs.map(t => t.monthIdx));
       if (mainMonths.size < 3) continue;
 
@@ -466,15 +490,17 @@ export async function analyzeFixedCostsDetailed(
       const anchorDay = findBestAnchorDay(anchorDaysSource);
 
       // [규칙 4: 약정일 일탈 거래(Outlier) 검증 — 고기반장 등 일상 소비 매장 차단]
+      // 1) 단일 거래 월(Clean Months)은 엄격히 약정일 ±3일 이내여야 함
       if (!isPinned) {
-        const hasOutlier = cTxs.some(t => getDayDistance(t.date.getDate(), anchorDay) > MAX_ANCHOR_DEVIATION);
-        if (hasOutlier) return;
+        const cleanOutlier = cleanMonths.flat().some(t => getDayDistance(t.date.getDate(), anchorDay) > MAX_ANCHOR_DEVIATION);
+        if (cleanOutlier) return;
       }
 
       // [규칙 5: 전수 이력 구성 & 월별 대표 거래(chosen) 선택]
       const evidence: { monthLabel: string; transactions: FixedCostTransaction[] }[] = [];
       const monthlyAmounts: number[] = [];
       const representativeAmounts: number[] = [];
+      let chosenOrNoiseOutlier = false;
 
       for (let mIdx = 0; mIdx < months.length; mIdx++) {
         const bucket = monthlyBuckets[mIdx];
@@ -494,6 +520,17 @@ export async function analyzeFixedCostsDetailed(
           }
         }
 
+        if (!isPinned) {
+          // 대표 납입 건(chosen)은 약정일 ±3일 이내 필수
+          if (minDist > MAX_ANCHOR_DEVIATION) {
+            chosenOrNoiseOutlier = true;
+          }
+          // 유일한 중복 월(1달)의 비대표 부차 거래가 주간 범위(±7일)를 넘게 동떨어진 경우 일상 소비처로 간주해 탈락
+          if (bucket.length > 1 && bucket.some(t => t !== chosen && getDayDistance(t.date.getDate(), anchorDay) > 7)) {
+            chosenOrNoiseOutlier = true;
+          }
+        }
+
         monthlyAmounts.push(chosen.amount);
         representativeAmounts.push(chosen.amount);
         evidence.push({
@@ -505,6 +542,8 @@ export async function analyzeFixedCostsDetailed(
           }],
         });
       }
+
+      if (chosenOrNoiseOutlier) return;
 
       // [규칙 6: 금액 변동계수(CV) 검증]
       const cv = representativeAmounts.length >= 2 ? calculateCv(representativeAmounts) : 0;
@@ -518,6 +557,9 @@ export async function analyzeFixedCostsDetailed(
       let isPending = false;
       const hasM0 = monthlyAmounts[0] > 0;
       const hasM1 = monthlyAmounts[1] > 0;
+
+      // 조회 월(M0)과 직전 월(M1) 2개월 연속 미발생 시 이미 만기/종료된 고정비로 간주해 제외
+      if (!hasM0 && !hasM1) return;
 
       if (!hasM0 && isCurrentMonthActual) {
         if (hasM1 && todayDate <= anchorDay + 2) {
